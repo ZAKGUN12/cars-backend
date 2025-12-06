@@ -161,7 +161,7 @@ async function updateGameData(userId, gameData) {
     if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
 
     // Update stats
-    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData } = gameData;
+    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData } = gameData;
     
     if (mode === 'bonus' && bonusData) {
       // Handle daily bonus
@@ -185,6 +185,19 @@ async function updateGameData(userId, gameData) {
       
       if (mistakes === 0 && !isEndurance) {
         currentData.stats.perfectRounds += 1;
+      }
+      
+      // Handle journey progress
+      if (mode === 'Journey' && journeyData) {
+        const { levelId, stars, completed } = journeyData;
+        const existing = currentData.stats.journeyProgress[levelId];
+        if (!existing || existing.score < score) {
+          currentData.stats.journeyProgress[levelId] = {
+            stars,
+            score,
+            completed
+          };
+        }
       }
       
       // Add to game history
