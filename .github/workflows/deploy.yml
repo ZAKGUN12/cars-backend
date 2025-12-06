@@ -1,0 +1,32 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Package Lambda Function
+      run: |
+        zip -r lambda-function.zip . --exclude="*.git*" --exclude="*.github*"
+    
+    - name: Deploy Lambda Function
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: eu-west-1
+      run: |
+        aws lambda update-function-code \
+          --function-name vehicle-guesser-api-prod \
+          --zip-file fileb://lambda-function.zip \
+          --region eu-west-1
