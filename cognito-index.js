@@ -161,13 +161,28 @@ async function updateGameData(userId, gameData) {
     if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
 
     // Update stats
-    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData } = gameData;
+    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData } = gameData;
     
     if (mode === 'bonus' && bonusData) {
       // Handle daily bonus
       currentData.stats.gears += bonusData.gears;
       currentData.stats.lastBonusDate = bonusData.lastBonusDate;
       currentData.stats.loginStreak = bonusData.loginStreak;
+    } else if (mode === 'hint' && hintCost) {
+      // Handle hint usage
+      currentData.stats.gears = Math.max(0, currentData.stats.gears - hintCost);
+    } else if (mode === 'powerup' && powerUpType) {
+      // Handle powerup usage
+      if (currentData.stats.powerUps[powerUpType] > 0) {
+        currentData.stats.powerUps[powerUpType] -= 1;
+      }
+    } else if (mode === 'purchase' && purchaseData) {
+      // Handle powerup purchase
+      const { powerUp, cost } = purchaseData;
+      if (currentData.stats.gears >= cost) {
+        currentData.stats.gears -= cost;
+        currentData.stats.powerUps[powerUp] = (currentData.stats.powerUps[powerUp] || 0) + 1;
+      }
     } else {
       // Handle game stats
       currentData.stats.gamesPlayed += 1;
