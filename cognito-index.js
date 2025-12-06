@@ -239,7 +239,7 @@ async function getLeaderboard() {
 async function getVehicleImage(path) {
   try {
     const imageKey = path.replace('/images/', '');
-    const s3Url = `https://vehicle-guesser-1764962592.s3.amazonaws.com/images/${imageKey}`;
+    const s3Url = `https://vehicle-guesser-1764962592.s3.eu-west-1.amazonaws.com/images/${imageKey}`;
     
     return {
       statusCode: 302,
