@@ -46,6 +46,10 @@ exports.handler = async (event) => {
       return await getLeaderboard();
     }
 
+    if (path.startsWith('/images/') && httpMethod === 'GET') {
+      return await getVehicleImage(path);
+    }
+
     return {
       statusCode: 404,
       headers: corsHeaders,
@@ -225,6 +229,29 @@ async function getLeaderboard() {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to get leaderboard' })
+    };
+  }
+}
+
+async function getVehicleImage(path) {
+  try {
+    const imageKey = path.replace('/images/', '');
+    const s3Url = `https://vehicle-guesser-1764962592.s3.amazonaws.com/images/${imageKey}`;
+    
+    return {
+      statusCode: 302,
+      headers: {
+        ...corsHeaders,
+        'Location': s3Url,
+        'Cache-Control': 'public, max-age=86400'
+      }
+    };
+  } catch (error) {
+    console.error('Get image error:', error);
+    return {
+      statusCode: 404,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Image not found' })
     };
   }
 }
