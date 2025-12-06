@@ -161,37 +161,45 @@ async function updateGameData(userId, gameData) {
     if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
 
     // Update stats
-    const { score, mode, level, mistakes = 0, isEndurance = false } = gameData;
+    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData } = gameData;
     
-    currentData.stats.gamesPlayed += 1;
-    currentData.stats.totalPoints += score;
-    currentData.stats.difficultyPlays[level] = (currentData.stats.difficultyPlays[level] || 0) + 1;
-    
-    if (isEndurance) {
-      currentData.stats.enduranceHighScore = Math.max(currentData.stats.enduranceHighScore, score);
+    if (mode === 'bonus' && bonusData) {
+      // Handle daily bonus
+      currentData.stats.gears += bonusData.gears;
+      currentData.stats.lastBonusDate = bonusData.lastBonusDate;
+      currentData.stats.loginStreak = bonusData.loginStreak;
     } else {
-      currentData.stats.highScore = Math.max(currentData.stats.highScore, score);
+      // Handle game stats
+      currentData.stats.gamesPlayed += 1;
+      currentData.stats.totalPoints += score;
+      currentData.stats.difficultyPlays[level] = (currentData.stats.difficultyPlays[level] || 0) + 1;
+      
+      if (isEndurance) {
+        currentData.stats.enduranceHighScore = Math.max(currentData.stats.enduranceHighScore, score);
+      } else {
+        currentData.stats.highScore = Math.max(currentData.stats.highScore, score);
+      }
+      
+      currentData.stats.correctAnswers += Math.floor(score / 100);
+      currentData.stats.incorrectAnswers += mistakes;
+      
+      if (mistakes === 0 && !isEndurance) {
+        currentData.stats.perfectRounds += 1;
+      }
+      
+      // Add to game history
+      currentData.stats.gameHistory.unshift({
+        id: Date.now().toString(),
+        date: new Date().toLocaleDateString(),
+        mode,
+        level,
+        score,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Keep only last 10 games
+      currentData.stats.gameHistory = currentData.stats.gameHistory.slice(0, 10);
     }
-    
-    currentData.stats.correctAnswers += Math.floor(score / 100);
-    currentData.stats.incorrectAnswers += mistakes;
-    
-    if (mistakes === 0 && !isEndurance) {
-      currentData.stats.perfectRounds += 1;
-    }
-    
-    // Add to game history
-    currentData.stats.gameHistory.unshift({
-      id: Date.now().toString(),
-      date: new Date().toLocaleDateString(),
-      mode,
-      level,
-      score,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Keep only last 10 games
-    currentData.stats.gameHistory = currentData.stats.gameHistory.slice(0, 10);
     currentData.updatedAt = new Date().toISOString();
 
     // Save updated data
