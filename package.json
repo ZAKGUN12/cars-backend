@@ -1,21 +1,10 @@
 {
   "name": "vehicle-guesser-backend",
   "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "build": "zip -r function.zip . -x '*.git*' 'node_modules/.cache/*' 'tests/*'",
-    "deploy": "aws lambda update-function-code --function-name vehicle-guesser-backend --zip-file fileb://function.zip",
-    "test": "jest",
-    "dev": "nodemon index.js"
-  },
+  "description": "AWS Lambda backend for Vehicle Guesser",
+  "main": "cognito-index.js",
   "dependencies": {
-    "aws-sdk": "^2.1490.0",
-    "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
-    "uuid": "^9.0.1"
-  },
-  "devDependencies": {
-    "jest": "^29.7.0",
-    "nodemon": "^3.0.2"
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0"
   }
 }

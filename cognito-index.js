@@ -1,5 +1,8 @@
-const AWS = require('aws-sdk');
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+
+const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'eu-west-1' });
+const dynamodb = DynamoDBDocumentClient.from(client);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
