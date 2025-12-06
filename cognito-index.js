@@ -100,6 +100,13 @@ async function getGameData(userId) {
       updatedAt: new Date().toISOString()
     };
 
+    // Ensure all required properties exist (migration for existing users)
+    if (!gameData.stats.gears) gameData.stats.gears = 20;
+    if (!gameData.stats.xp) gameData.stats.xp = 0;
+    if (!gameData.stats.level) gameData.stats.level = 1;
+    if (!gameData.stats.powerUps) gameData.stats.powerUps = { timeFreeze: 0, clueGiver: 0 };
+    if (!gameData.stats.journeyProgress) gameData.stats.journeyProgress = {};
+
     return {
       statusCode: 200,
       headers: corsHeaders,
@@ -145,6 +152,13 @@ async function updateGameData(userId, gameData) {
       },
       createdAt: new Date().toISOString()
     };
+
+    // Ensure all required properties exist (migration for existing users)
+    if (!currentData.stats.gears) currentData.stats.gears = 20;
+    if (!currentData.stats.xp) currentData.stats.xp = 0;
+    if (!currentData.stats.level) currentData.stats.level = 1;
+    if (!currentData.stats.powerUps) currentData.stats.powerUps = { timeFreeze: 0, clueGiver: 0 };
+    if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
 
     // Update stats
     const { score, mode, level, mistakes = 0, isEndurance = false } = gameData;
