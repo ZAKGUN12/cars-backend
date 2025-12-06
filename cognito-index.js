@@ -71,10 +71,10 @@ exports.handler = async (event) => {
 
 async function getGameData(userId) {
   try {
-    const result = await dynamodb.get({
+    const result = await dynamodb.send(new GetCommand({
       TableName: process.env.GAME_DATA_TABLE,
       Key: { userId }
-    }).promise();
+    }));
 
     const gameData = result.Item || {
       userId,
@@ -118,10 +118,10 @@ async function getGameData(userId) {
 async function updateGameData(userId, gameData) {
   try {
     // Get existing data
-    const existing = await dynamodb.get({
+    const existing = await dynamodb.send(new GetCommand({
       TableName: process.env.GAME_DATA_TABLE,
       Key: { userId }
-    }).promise();
+    }));
 
     const currentData = existing.Item || {
       userId,
@@ -181,10 +181,10 @@ async function updateGameData(userId, gameData) {
     currentData.updatedAt = new Date().toISOString();
 
     // Save updated data
-    await dynamodb.put({
+    await dynamodb.send(new PutCommand({
       TableName: process.env.GAME_DATA_TABLE,
       Item: currentData
-    }).promise();
+    }));
 
     return {
       statusCode: 200,
@@ -203,9 +203,9 @@ async function updateGameData(userId, gameData) {
 
 async function getLeaderboard() {
   try {
-    const result = await dynamodb.scan({
+    const result = await dynamodb.send(new ScanCommand({
       TableName: process.env.GAME_DATA_TABLE
-    }).promise();
+    }));
 
     const leaderboard = result.Items
       .map(item => ({
