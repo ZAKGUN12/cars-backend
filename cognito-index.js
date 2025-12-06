@@ -183,9 +183,31 @@ async function updateGameData(userId, gameData) {
       currentData.stats.correctAnswers += Math.floor(score / 100);
       currentData.stats.incorrectAnswers += mistakes;
       
-      if (mistakes === 0 && !isEndurance) {
+      const isPerfectGame = !isEndurance && mistakes === 0;
+      if (isPerfectGame) {
         currentData.stats.perfectRounds += 1;
       }
+      
+      // Handle XP and level progression
+      const xpGained = score;
+      const gearsGained = Math.floor(score / 150) + (isPerfectGame ? 50 : 0);
+      const XP_PER_LEVEL = 2500;
+      const GEARS_PER_LEVEL_UP = 50;
+      
+      let newXp = currentData.stats.xp + xpGained;
+      let newLevel = currentData.stats.level;
+      let newGears = currentData.stats.gears + gearsGained;
+      
+      if (newXp >= XP_PER_LEVEL) {
+        const levelsGained = Math.floor(newXp / XP_PER_LEVEL);
+        newLevel += levelsGained;
+        newXp = newXp % XP_PER_LEVEL;
+        newGears += (GEARS_PER_LEVEL_UP * levelsGained);
+      }
+      
+      currentData.stats.xp = newXp;
+      currentData.stats.level = newLevel;
+      currentData.stats.gears = newGears;
       
       // Handle journey progress
       if (mode === 'Journey' && journeyData) {
