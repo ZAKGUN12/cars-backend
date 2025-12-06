@@ -11,14 +11,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-    
     - name: Package Lambda Function
       run: |
-        zip -r lambda-function.zip . --exclude="*.git*" --exclude="*.github*"
+        zip -r lambda-function.zip . --exclude="*.git*" --exclude="*.github*" --exclude="README.md"
     
     - name: Deploy Lambda Function
       env:
