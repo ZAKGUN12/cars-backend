@@ -226,12 +226,14 @@ async function updateGameData(userId, gameData) {
       
       // Handle journey progress
       if (mode === 'Journey' && journeyData) {
-        const { levelId, stars, completed } = journeyData;
+        const { levelId, stars, completed, score: journeyScore } = journeyData;
         const existing = currentData.stats.journeyProgress[levelId];
-        if (!existing || existing.score < score) {
+        
+        // Only update if better score or first attempt
+        if (!existing || existing.score < journeyScore) {
           currentData.stats.journeyProgress[levelId] = {
             stars,
-            score,
+            score: journeyScore,
             completed
           };
         }
