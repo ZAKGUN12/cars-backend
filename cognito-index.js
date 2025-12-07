@@ -48,8 +48,9 @@ exports.handler = async (event) => {
       };
     }
 
-    // Extract user ID from Cognito JWT
-    const userId = event.requestContext?.authorizer?.claims?.sub;
+    // Extract user info from Cognito JWT
+    const claims = event.requestContext?.authorizer?.claims;
+    const userId = claims?.sub;
     if (!userId) {
       return {
         statusCode: 401,
@@ -57,6 +58,15 @@ exports.handler = async (event) => {
         body: JSON.stringify({ error: 'Unauthorized', code: 'MISSING_USER_ID' })
       };
     }
+    
+    // Extract user profile from Cognito claims
+    const userProfile = {
+      email: claims?.email,
+      username: claims?.['cognito:username'] || claims?.preferred_username,
+      name: claims?.name,
+      picture: claims?.picture,
+      emailVerified: claims?.email_verified === 'true'
+    };
     
     // Validate user ID format
     if (!/^[a-f0-9-]{36}$/.test(userId)) {
@@ -70,7 +80,7 @@ exports.handler = async (event) => {
     // Route handling
     if (path === '/gamedata') {
       if (httpMethod === 'GET') {
-        return await getGameData(userId);
+        return await getGameData(userId, userProfile);
       } else if (httpMethod === 'POST') {
         if (!body) {
           return {
@@ -91,7 +101,7 @@ exports.handler = async (event) => {
           };
         }
         
-        return await updateGameData(userId, gameData);
+        return await updateGameData(userId, gameData, userProfile);
       }
     }
 
@@ -145,7 +155,7 @@ exports.handler = async (event) => {
   }
 };
 
-async function getGameData(userId) {
+async function getGameData(userId, userProfile) {
   try {
     const result = await retryOperation(() => 
       dynamodb.send(new GetCommand({
@@ -156,6 +166,13 @@ async function getGameData(userId) {
 
     const gameData = result.Item || {
       userId,
+      profile: {
+        email: userProfile.email,
+        username: userProfile.username,
+        name: userProfile.name,
+        picture: userProfile.picture,
+        emailVerified: userProfile.emailVerified
+      },
       stats: {
         highScore: 0,
         enduranceHighScore: 0,
@@ -179,6 +196,19 @@ async function getGameData(userId) {
     };
 
     // Ensure all required properties exist (migration for existing users)
+    if (!gameData.profile) {
+      gameData.profile = {
+        email: userProfile.email,
+        username: userProfile.username,
+        name: userProfile.name,
+        picture: userProfile.picture,
+        emailVerified: userProfile.emailVerified
+      };
+    } else {
+      // Update profile with latest info from Cognito
+      gameData.profile = { ...gameData.profile, ...userProfile };
+    }
+    
     if (!gameData.stats.gears) gameData.stats.gears = 20;
     if (!gameData.stats.xp) gameData.stats.xp = 0;
     if (!gameData.stats.level) gameData.stats.level = 1;
@@ -200,7 +230,7 @@ async function getGameData(userId) {
   }
 }
 
-async function updateGameData(userId, gameData) {
+async function updateGameData(userId, gameData, userProfile) {
   try {
     // Get existing data with retry
     const existing = await retryOperation(() => 
@@ -212,6 +242,13 @@ async function updateGameData(userId, gameData) {
 
     const currentData = existing.Item || {
       userId,
+      profile: {
+        email: userProfile.email,
+        username: userProfile.username,
+        name: userProfile.name,
+        picture: userProfile.picture,
+        emailVerified: userProfile.emailVerified
+      },
       stats: {
         highScore: 0,
         enduranceHighScore: 0,
@@ -234,6 +271,19 @@ async function updateGameData(userId, gameData) {
     };
 
     // Ensure all required properties exist (migration for existing users)
+    if (!currentData.profile) {
+      currentData.profile = {
+        email: userProfile.email,
+        username: userProfile.username,
+        name: userProfile.name,
+        picture: userProfile.picture,
+        emailVerified: userProfile.emailVerified
+      };
+    } else {
+      // Update profile with latest info from Cognito
+      currentData.profile = { ...currentData.profile, ...userProfile };
+    }
+    
     if (!currentData.stats.gears) currentData.stats.gears = 20;
     if (!currentData.stats.xp) currentData.stats.xp = 0;
     if (!currentData.stats.level) currentData.stats.level = 1;
@@ -372,7 +422,8 @@ async function getLeaderboard() {
 
     const leaderboard = result.Items
       .map(item => ({
-        username: item.username || 'Anonymous',
+        username: item.profile?.username || item.profile?.name || 'Anonymous',
+        picture: item.profile?.picture,
         highScore: item.stats.highScore || 0,
         level: item.stats.level || 1,
         gamesPlayed: item.stats.gamesPlayed || 0
