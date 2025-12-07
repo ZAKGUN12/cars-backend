@@ -296,13 +296,19 @@ async function updateGameData(userId, gameData, userProfile) {
     if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
 
     // Update stats
-    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData } = gameData;
+    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData } = gameData;
     
     if (mode === 'bonus' && bonusData) {
       // Handle daily bonus
       currentData.stats.gears += bonusData.gears;
       currentData.stats.lastBonusDate = bonusData.lastBonusDate;
       currentData.stats.loginStreak = bonusData.loginStreak;
+    } else if (mode === 'profile_update' && profileData) {
+      // Handle profile update (username setup)
+      if (profileData.username) {
+        currentData.profile.username = profileData.username;
+        currentData.profile.name = profileData.username;
+      }
     } else if (mode === 'hint' && hintCost) {
       // Handle hint usage
       currentData.stats.gears = Math.max(0, currentData.stats.gears - hintCost);
