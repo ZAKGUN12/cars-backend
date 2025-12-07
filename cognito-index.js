@@ -6,7 +6,11 @@ const client = new DynamoDBClient({
   maxAttempts: 3,
   retryMode: 'adaptive'
 });
-const dynamodb = DynamoDBDocumentClient.from(client);
+const dynamodb = DynamoDBDocumentClient.from(client, {
+  marshallOptions: {
+    removeUndefinedValues: true
+  }
+});
 
 // Retry utility function
 const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
