@@ -158,6 +158,29 @@ exports.handler = async (event) => {
       return await checkEmailExists(requestData.email);
     }
 
+    if (path === '/check-username' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required', code: 'MISSING_BODY' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body', code: 'INVALID_JSON' })
+        };
+      }
+      
+      return await checkUsernameExists(requestData.username);
+    }
+
     if (path === '/leaderboard' && httpMethod === 'GET') {
       return await getLeaderboard();
     }
@@ -563,24 +586,30 @@ async function setupUsername(userId, username, userProfile) {
       };
     }
     
-    // Check if username already exists
-    const existingUsers = await retryOperation(() => 
-      dynamodb.send(new ScanCommand({
-        TableName: process.env.GAME_DATA_TABLE,
-        FilterExpression: '#profile.#username = :username',
-        ExpressionAttributeNames: {
-          '#profile': 'profile',
-          '#username': 'username'
-        },
-        ExpressionAttributeValues: {
-          ':username': trimmedUsername
-        }
-      }))
-    );
+    // Check if username already exists (reuse the new function)
+    const usernameCheck = await checkUsernameExists(trimmedUsername);
+    if (usernameCheck.statusCode !== 200) {
+      return usernameCheck;
+    }
     
-    if (existingUsers.Items && existingUsers.Items.length > 0) {
+    const usernameCheckResult = JSON.parse(usernameCheck.body);
+    if (usernameCheckResult.exists) {
       // Check if it's the same user updating their username
-      const existingUser = existingUsers.Items.find(item => item.userId === userId);
+      const existingUsers = await retryOperation(() => 
+        dynamodb.send(new ScanCommand({
+          TableName: process.env.GAME_DATA_TABLE,
+          FilterExpression: '#profile.#username = :username',
+          ExpressionAttributeNames: {
+            '#profile': 'profile',
+            '#username': 'username'
+          },
+          ExpressionAttributeValues: {
+            ':username': trimmedUsername
+          }
+        }))
+      );
+      
+      const existingUser = existingUsers.Items?.find(item => item.userId === userId);
       if (!existingUser) {
         return {
           statusCode: 409,
@@ -653,6 +682,51 @@ async function checkEmailExists(email) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to check email' })
+    };
+  }
+}
+
+async function checkUsernameExists(username) {
+  try {
+    if (!username || typeof username !== 'string') {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Username is required' })
+      };
+    }
+    
+    const trimmedUsername = username.trim();
+    
+    // Check if username exists in any user profile
+    const existingUsers = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        FilterExpression: '#profile.#username = :username',
+        ExpressionAttributeNames: {
+          '#profile': 'profile',
+          '#username': 'username'
+        },
+        ExpressionAttributeValues: {
+          ':username': trimmedUsername
+        }
+      }))
+    );
+    
+    const exists = existingUsers.Items && existingUsers.Items.length > 0;
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ exists })
+    };
+    
+  } catch (error) {
+    console.error('Check username exists error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to check username' })
     };
   }
 }
