@@ -52,6 +52,30 @@ exports.handler = async (event) => {
       };
     }
 
+    // Public endpoints that don't require authentication
+    if (path === '/check-username' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required', code: 'MISSING_BODY' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body', code: 'INVALID_JSON' })
+        };
+      }
+      
+      return await checkUsernameExists(requestData.username);
+    }
+
     // Extract user info from Cognito JWT
     const claims = event.requestContext?.authorizer?.claims;
     const userId = claims?.sub;
@@ -156,29 +180,6 @@ exports.handler = async (event) => {
       }
       
       return await checkEmailExists(requestData.email);
-    }
-
-    if (path === '/check-username' && httpMethod === 'POST') {
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required', code: 'MISSING_BODY' })
-        };
-      }
-      
-      let requestData;
-      try {
-        requestData = JSON.parse(body);
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body', code: 'INVALID_JSON' })
-        };
-      }
-      
-      return await checkUsernameExists(requestData.username);
     }
 
     if (path === '/leaderboard' && httpMethod === 'GET') {
