@@ -65,12 +65,14 @@ exports.handler = async (event) => {
     }
     
     // Extract user profile from Cognito claims
+    const isGoogleUser = claims?.['cognito:username']?.startsWith('Google_');
     const userProfile = {
       email: claims?.email,
       username: claims?.['cognito:username'] || claims?.preferred_username,
       name: claims?.name,
       picture: claims?.picture,
-      emailVerified: claims?.email_verified === 'true'
+      emailVerified: claims?.email_verified === 'true',
+      authMethod: isGoogleUser ? 'google' : 'email'
     };
     
     // Validate user ID format
@@ -222,7 +224,8 @@ async function getGameData(userId, userProfile) {
         username: userProfile.username,
         name: userProfile.name,
         picture: userProfile.picture,
-        emailVerified: userProfile.emailVerified
+        emailVerified: userProfile.emailVerified,
+        authMethod: userProfile.authMethod
       },
       stats: {
         highScore: 0,
@@ -253,11 +256,16 @@ async function getGameData(userId, userProfile) {
         username: userProfile.username,
         name: userProfile.name,
         picture: userProfile.picture,
-        emailVerified: userProfile.emailVerified
+        emailVerified: userProfile.emailVerified,
+        authMethod: userProfile.authMethod
       };
     } else {
       // Update profile with latest info from Cognito
       gameData.profile = { ...gameData.profile, ...userProfile };
+      // Ensure authMethod is set for existing users
+      if (!gameData.profile.authMethod) {
+        gameData.profile.authMethod = userProfile.authMethod;
+      }
     }
     
     if (!gameData.stats.gears) gameData.stats.gears = 20;
@@ -298,7 +306,8 @@ async function updateGameData(userId, gameData, userProfile) {
         username: userProfile.username,
         name: userProfile.name,
         picture: userProfile.picture,
-        emailVerified: userProfile.emailVerified
+        emailVerified: userProfile.emailVerified,
+        authMethod: userProfile.authMethod
       },
       stats: {
         highScore: 0,
@@ -328,11 +337,16 @@ async function updateGameData(userId, gameData, userProfile) {
         username: userProfile.username,
         name: userProfile.name,
         picture: userProfile.picture,
-        emailVerified: userProfile.emailVerified
+        emailVerified: userProfile.emailVerified,
+        authMethod: userProfile.authMethod
       };
     } else {
       // Update profile with latest info from Cognito
       currentData.profile = { ...currentData.profile, ...userProfile };
+      // Ensure authMethod is set for existing users
+      if (!currentData.profile.authMethod) {
+        currentData.profile.authMethod = userProfile.authMethod;
+      }
     }
     
     if (!currentData.stats.gears) currentData.stats.gears = 20;
@@ -606,11 +620,17 @@ async function checkEmailExists(email) {
     );
     
     const exists = existingUsers.Items && existingUsers.Items.length > 0;
+    let authMethod = null;
+    
+    if (exists) {
+      const user = existingUsers.Items[0];
+      authMethod = user.profile?.authMethod || 'unknown';
+    }
     
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ exists })
+      body: JSON.stringify({ exists, authMethod })
     };
     
   } catch (error) {
