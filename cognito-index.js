@@ -195,7 +195,7 @@ async function updateGameData(userId, gameData) {
         currentData.stats.highScore = Math.max(currentData.stats.highScore, score);
       }
       
-      currentData.stats.correctAnswers += Math.floor(score / 100);
+      currentData.stats.correctAnswers += Math.floor(score / 25); // Adjusted for new scoring
       currentData.stats.incorrectAnswers += mistakes;
       
       const isPerfectGame = !isEndurance && mistakes === 0;
@@ -203,11 +203,16 @@ async function updateGameData(userId, gameData) {
         currentData.stats.perfectRounds += 1;
       }
       
-      // Handle XP and level progression
-      const xpGained = score;
-      const gearsGained = Math.floor(score / 150) + (isPerfectGame ? 50 : 0);
-      const XP_PER_LEVEL = 2500;
-      const GEARS_PER_LEVEL_UP = 50;
+      // Optimized XP and level progression with realistic values
+      const baseXp = Math.floor(score / 10); // 1 XP per 10 points
+      const timeBonus = Math.max(0, Math.floor((score % 1000) / 100)); // Time bonus XP
+      const xpGained = baseXp + timeBonus + (isPerfectGame ? 25 : 0);
+      
+      const baseGears = Math.floor(score / 50); // 1 gear per 50 points
+      const gearsGained = baseGears + (isPerfectGame ? 10 : 0);
+      
+      const XP_PER_LEVEL = 500; // Reduced from 2500
+      const GEARS_PER_LEVEL_UP = 25; // Reduced from 50
       
       let newXp = currentData.stats.xp + xpGained;
       let newLevel = currentData.stats.level;
