@@ -1,8 +1,30 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 
-const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'eu-west-1' });
+const client = new DynamoDBClient({ 
+  region: process.env.AWS_REGION || 'eu-west-1',
+  maxAttempts: 3,
+  retryMode: 'adaptive'
+});
 const dynamodb = DynamoDBDocumentClient.from(client);
+
+// Retry utility function
+const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      console.warn(`Attempt ${attempt} failed:`, error.message);
+      
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      
+      // Exponential backoff
+      await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, attempt - 1)));
+    }
+  }
+};
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,7 +54,16 @@ exports.handler = async (event) => {
       return {
         statusCode: 401,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Unauthorized' })
+        body: JSON.stringify({ error: 'Unauthorized', code: 'MISSING_USER_ID' })
+      };
+    }
+    
+    // Validate user ID format
+    if (!/^[a-f0-9-]{36}$/.test(userId)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid user ID format', code: 'INVALID_USER_ID' })
       };
     }
 
@@ -41,7 +72,26 @@ exports.handler = async (event) => {
       if (httpMethod === 'GET') {
         return await getGameData(userId);
       } else if (httpMethod === 'POST') {
-        return await updateGameData(userId, JSON.parse(body));
+        if (!body) {
+          return {
+            statusCode: 400,
+            headers: corsHeaders,
+            body: JSON.stringify({ error: 'Request body is required', code: 'MISSING_BODY' })
+          };
+        }
+        
+        let gameData;
+        try {
+          gameData = JSON.parse(body);
+        } catch (parseError) {
+          return {
+            statusCode: 400,
+            headers: corsHeaders,
+            body: JSON.stringify({ error: 'Invalid JSON in request body', code: 'INVALID_JSON' })
+          };
+        }
+        
+        return await updateGameData(userId, gameData);
       }
     }
 
@@ -61,20 +111,48 @@ exports.handler = async (event) => {
 
   } catch (error) {
     console.error('Lambda error:', error);
+    
+    // Handle specific AWS errors
+    if (error.name === 'ResourceNotFoundException') {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Resource not found', code: 'RESOURCE_NOT_FOUND' })
+      };
+    }
+    
+    if (error.name === 'ValidationException') {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Validation error', code: 'VALIDATION_ERROR' })
+      };
+    }
+    
+    if (error.name === 'ThrottlingException') {
+      return {
+        statusCode: 429,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Too many requests', code: 'THROTTLED' })
+      };
+    }
+    
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ error: 'Internal server error', code: 'INTERNAL_ERROR' })
     };
   }
 };
 
 async function getGameData(userId) {
   try {
-    const result = await dynamodb.send(new GetCommand({
-      TableName: process.env.GAME_DATA_TABLE,
-      Key: { userId }
-    }));
+    const result = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Key: { userId }
+      }))
+    );
 
     const gameData = result.Item || {
       userId,
@@ -124,11 +202,13 @@ async function getGameData(userId) {
 
 async function updateGameData(userId, gameData) {
   try {
-    // Get existing data
-    const existing = await dynamodb.send(new GetCommand({
-      TableName: process.env.GAME_DATA_TABLE,
-      Key: { userId }
-    }));
+    // Get existing data with retry
+    const existing = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Key: { userId }
+      }))
+    );
 
     const currentData = existing.Item || {
       userId,
@@ -259,11 +339,13 @@ async function updateGameData(userId, gameData) {
     }
     currentData.updatedAt = new Date().toISOString();
 
-    // Save updated data
-    await dynamodb.send(new PutCommand({
-      TableName: process.env.GAME_DATA_TABLE,
-      Item: currentData
-    }));
+    // Save updated data with retry
+    await retryOperation(() => 
+      dynamodb.send(new PutCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Item: currentData
+      }))
+    );
 
     return {
       statusCode: 200,
@@ -282,9 +364,11 @@ async function updateGameData(userId, gameData) {
 
 async function getLeaderboard() {
   try {
-    const result = await dynamodb.send(new ScanCommand({
-      TableName: process.env.GAME_DATA_TABLE
-    }));
+    const result = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({
+        TableName: process.env.GAME_DATA_TABLE
+      }))
+    );
 
     const leaderboard = result.Items
       .map(item => ({
