@@ -260,8 +260,15 @@ async function getGameData(userId, userProfile) {
         authMethod: userProfile.authMethod
       };
     } else {
-      // Update profile with latest info from Cognito
+      // Update profile with latest info from Cognito, but preserve custom username
+      const existingUsername = gameData.profile.username;
       gameData.profile = { ...gameData.profile, ...userProfile };
+      
+      // Preserve custom username if it exists and is not a Cognito auto-generated one
+      if (existingUsername && !existingUsername.startsWith('Google_') && existingUsername !== userProfile.username) {
+        gameData.profile.username = existingUsername;
+      }
+      
       // Ensure authMethod is set for existing users
       if (!gameData.profile.authMethod) {
         gameData.profile.authMethod = userProfile.authMethod;
@@ -341,8 +348,15 @@ async function updateGameData(userId, gameData, userProfile) {
         authMethod: userProfile.authMethod
       };
     } else {
-      // Update profile with latest info from Cognito
+      // Update profile with latest info from Cognito, but preserve custom username
+      const existingUsername = currentData.profile.username;
       currentData.profile = { ...currentData.profile, ...userProfile };
+      
+      // Preserve custom username if it exists and is not a Cognito auto-generated one
+      if (existingUsername && !existingUsername.startsWith('Google_') && existingUsername !== userProfile.username) {
+        currentData.profile.username = existingUsername;
+      }
+      
       // Ensure authMethod is set for existing users
       if (!currentData.profile.authMethod) {
         currentData.profile.authMethod = userProfile.authMethod;
