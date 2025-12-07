@@ -110,6 +110,29 @@ exports.handler = async (event) => {
       }
     }
 
+    if (path === '/setup-username' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required', code: 'MISSING_BODY' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body', code: 'INVALID_JSON' })
+        };
+      }
+      
+      return await setupUsername(userId, requestData.username, userProfile);
+    }
+
     if (path === '/leaderboard' && httpMethod === 'GET') {
       return await getLeaderboard();
     }
@@ -457,6 +480,79 @@ async function getLeaderboard() {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to get leaderboard' })
+    };
+  }
+}
+
+async function setupUsername(userId, username, userProfile) {
+  try {
+    // Validate username format
+    if (!username || typeof username !== 'string') {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Username is required' })
+      };
+    }
+    
+    const trimmedUsername = username.trim();
+    if (trimmedUsername.length < 3 || trimmedUsername.length > 20) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Username must be 3-20 characters' })
+      };
+    }
+    
+    if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Username can only contain letters, numbers, and underscores' })
+      };
+    }
+    
+    // Check if username already exists
+    const existingUsers = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        FilterExpression: '#profile.#username = :username',
+        ExpressionAttributeNames: {
+          '#profile': 'profile',
+          '#username': 'username'
+        },
+        ExpressionAttributeValues: {
+          ':username': trimmedUsername
+        }
+      }))
+    );
+    
+    if (existingUsers.Items && existingUsers.Items.length > 0) {
+      // Check if it's the same user updating their username
+      const existingUser = existingUsers.Items.find(item => item.userId === userId);
+      if (!existingUser) {
+        return {
+          statusCode: 409,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Username already taken' })
+        };
+      }
+    }
+    
+    // Update user profile with new username
+    const gameData = {
+      mode: 'profile_update',
+      profileData: { username: trimmedUsername }
+    };
+    
+    return await updateGameData(userId, gameData, userProfile);
+    
+  } catch (error) {
+    console.error('Setup username error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to setup username' })
     };
   }
 }
