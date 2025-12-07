@@ -133,6 +133,29 @@ exports.handler = async (event) => {
       return await setupUsername(userId, requestData.username, userProfile);
     }
 
+    if (path === '/check-email' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required', code: 'MISSING_BODY' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body', code: 'INVALID_JSON' })
+        };
+      }
+      
+      return await checkEmailExists(requestData.email);
+    }
+
     if (path === '/leaderboard' && httpMethod === 'GET') {
       return await getLeaderboard();
     }
@@ -553,6 +576,49 @@ async function setupUsername(userId, username, userProfile) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to setup username' })
+    };
+  }
+}
+
+async function checkEmailExists(email) {
+  try {
+    if (!email || typeof email !== 'string') {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Email is required' })
+      };
+    }
+    
+    // Check if email exists in any user profile
+    const existingUsers = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        FilterExpression: '#profile.#email = :email',
+        ExpressionAttributeNames: {
+          '#profile': 'profile',
+          '#email': 'email'
+        },
+        ExpressionAttributeValues: {
+          ':email': email.toLowerCase()
+        }
+      }))
+    );
+    
+    const exists = existingUsers.Items && existingUsers.Items.length > 0;
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ exists })
+    };
+    
+  } catch (error) {
+    console.error('Check email exists error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to check email' })
     };
   }
 }
