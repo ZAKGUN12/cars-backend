@@ -60,7 +60,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 401,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Unauthorized', code: 'MISSING_USER_ID' })
+        body: JSON.stringify({ error: 'Unauthorized - Please login again', code: 'MISSING_USER_ID' })
       };
     }
     
