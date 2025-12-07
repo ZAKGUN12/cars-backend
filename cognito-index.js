@@ -595,21 +595,17 @@ async function setupUsername(userId, username, userProfile) {
     const usernameCheckResult = JSON.parse(usernameCheck.body);
     if (usernameCheckResult.exists) {
       // Check if it's the same user updating their username
-      const existingUsers = await retryOperation(() => 
+      const allUsers = await retryOperation(() => 
         dynamodb.send(new ScanCommand({
-          TableName: process.env.GAME_DATA_TABLE,
-          FilterExpression: '#profile.#username = :username',
-          ExpressionAttributeNames: {
-            '#profile': 'profile',
-            '#username': 'username'
-          },
-          ExpressionAttributeValues: {
-            ':username': trimmedUsername.toLowerCase()
-          }
+          TableName: process.env.GAME_DATA_TABLE
         }))
       );
       
-      const existingUser = existingUsers.Items?.find(item => item.userId === userId);
+      const existingUser = allUsers.Items?.find(item => {
+        const storedUsername = item.profile?.username;
+        return storedUsername && storedUsername.toLowerCase() === trimmedUsername.toLowerCase() && item.userId === userId;
+      });
+      
       if (!existingUser) {
         return {
           statusCode: 409,
@@ -696,24 +692,22 @@ async function checkUsernameExists(username) {
       };
     }
     
-    const trimmedUsername = username.trim();
+    const trimmedUsername = username.trim().toLowerCase();
     
-    // Check if username exists in any user profile
-    const existingUsers = await retryOperation(() => 
+    // Get all users and check case-insensitive
+    const allUsers = await retryOperation(() => 
       dynamodb.send(new ScanCommand({
-        TableName: process.env.GAME_DATA_TABLE,
-        FilterExpression: '#profile.#username = :username',
-        ExpressionAttributeNames: {
-          '#profile': 'profile',
-          '#username': 'username'
-        },
-        ExpressionAttributeValues: {
-          ':username': trimmedUsername.toLowerCase()
-        }
+        TableName: process.env.GAME_DATA_TABLE
       }))
     );
     
-    const exists = existingUsers.Items && existingUsers.Items.length > 0;
+    // Check if any username matches case-insensitively
+    const exists = allUsers.Items?.some(item => {
+      const storedUsername = item.profile?.username;
+      return storedUsername && storedUsername.toLowerCase() === trimmedUsername;
+    }) || false;
+    
+    console.log(`Username check: "${trimmedUsername}" exists: ${exists}`);
     
     return {
       statusCode: 200,
