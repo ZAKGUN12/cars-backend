@@ -604,7 +604,7 @@ async function setupUsername(userId, username, userProfile) {
             '#username': 'username'
           },
           ExpressionAttributeValues: {
-            ':username': trimmedUsername
+            ':username': trimmedUsername.toLowerCase()
           }
         }))
       );
@@ -708,7 +708,7 @@ async function checkUsernameExists(username) {
           '#username': 'username'
         },
         ExpressionAttributeValues: {
-          ':username': trimmedUsername
+          ':username': trimmedUsername.toLowerCase()
         }
       }))
     );
