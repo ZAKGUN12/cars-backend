@@ -490,19 +490,19 @@ async function updateGameData(userId, gameData, userProfile) {
         currentData.stats.powerUps[powerUp] = (currentData.stats.powerUps[powerUp] || 0) + 1;
       }
     } else {
-      // Handle game stats
-      currentData.stats.gamesPlayed += 1;
-      currentData.stats.totalPoints += score;
-      currentData.stats.difficultyPlays[level] = (currentData.stats.difficultyPlays[level] || 0) + 1;
+      // Handle game stats with proper number validation
+      currentData.stats.gamesPlayed = Number(currentData.stats.gamesPlayed || 0) + 1;
+      currentData.stats.totalPoints = Number(currentData.stats.totalPoints || 0) + Number(score || 0);
+      currentData.stats.difficultyPlays[level] = Number(currentData.stats.difficultyPlays[level] || 0) + 1;
       
       if (isEndurance) {
-        currentData.stats.enduranceHighScore = Math.max(currentData.stats.enduranceHighScore, score);
+        currentData.stats.enduranceHighScore = Math.max(Number(currentData.stats.enduranceHighScore || 0), Number(score || 0));
       } else {
-        currentData.stats.highScore = Math.max(currentData.stats.highScore, score);
+        currentData.stats.highScore = Math.max(Number(currentData.stats.highScore || 0), Number(score || 0));
       }
       
-      currentData.stats.correctAnswers += correctCount;
-      currentData.stats.incorrectAnswers += mistakes;
+      currentData.stats.correctAnswers = Number(currentData.stats.correctAnswers || 0) + Number(correctCount || 0);
+      currentData.stats.incorrectAnswers = Number(currentData.stats.incorrectAnswers || 0) + Number(mistakes || 0);
       
       const isPerfectGame = !isEndurance && mistakes === 0;
       if (isPerfectGame) {
@@ -510,31 +510,37 @@ async function updateGameData(userId, gameData, userProfile) {
       }
       
       // Optimized XP and level progression with realistic values
-      const baseXp = Math.floor(score / 10) || 0; // 1 XP per 10 points
-      const timeBonus = Math.max(0, Math.floor((score % 1000) / 100)) || 0; // Time bonus XP
-      const xpGained = (baseXp + timeBonus + (isPerfectGame ? 25 : 0)) || 0;
+      const validScore = Number(score || 0);
+      const baseXp = Math.floor(validScore / 10);
+      const timeBonus = Math.max(0, Math.floor((validScore % 1000) / 100));
+      const xpGained = baseXp + timeBonus + (isPerfectGame ? 25 : 0);
       
-      const baseGears = Math.floor(score / 50) || 0; // 1 gear per 50 points
-      const gearsGained = (baseGears + (isPerfectGame ? 10 : 0)) || 0;
+      const baseGears = Math.floor(validScore / 50);
+      const gearsGained = baseGears + (isPerfectGame ? 10 : 0);
       
       const XP_PER_LEVEL = 500;
       const GEARS_PER_LEVEL_UP = 25;
       const PERFECT_BONUS_POINTS = 30;
       
-      let newXp = (currentData.stats.xp + xpGained) || 0;
-      let newLevel = currentData.stats.level || 1;
-      let newGears = (currentData.stats.gears + gearsGained) || 0;
+      let newXp = Number(currentData.stats.xp || 0) + Number(xpGained || 0);
+      let newLevel = Number(currentData.stats.level || 1);
+      let newGears = Number(currentData.stats.gears || 0) + Number(gearsGained || 0);
+      
+      // Ensure all values are valid numbers
+      newXp = isNaN(newXp) ? 0 : newXp;
+      newLevel = isNaN(newLevel) ? 1 : newLevel;
+      newGears = isNaN(newGears) ? 0 : newGears;
       
       if (newXp >= XP_PER_LEVEL) {
-        const levelsGained = Math.floor(newXp / XP_PER_LEVEL) || 0;
+        const levelsGained = Math.floor(newXp / XP_PER_LEVEL);
         newLevel += levelsGained;
-        newXp = (newXp % XP_PER_LEVEL) || 0;
-        newGears += (GEARS_PER_LEVEL_UP * levelsGained) || 0;
+        newXp = newXp % XP_PER_LEVEL;
+        newGears += GEARS_PER_LEVEL_UP * levelsGained;
       }
       
-      currentData.stats.xp = isNaN(newXp) ? 0 : newXp;
-      currentData.stats.level = isNaN(newLevel) ? 1 : newLevel;
-      currentData.stats.gears = isNaN(newGears) ? 0 : newGears;
+      currentData.stats.xp = Math.max(0, Math.floor(newXp));
+      currentData.stats.level = Math.max(1, Math.floor(newLevel));
+      currentData.stats.gears = Math.max(0, Math.floor(newGears));
       
       // Handle journey progress
       if (mode === 'Journey' && journeyData) {
