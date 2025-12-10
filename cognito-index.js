@@ -446,11 +446,11 @@ async function updateGameData(userId, gameData, userProfile) {
     // Update stats
     const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
     
-    // Validate score (anti-cheat)
+    // Validate score (anti-cheat) - Allow higher scores for journey mode
     const MAX_POINTS_PER_VEHICLE = 210;
-    const MAX_POINTS_PER_GAME = MAX_POINTS_PER_VEHICLE * 10; // 2100 for max 10 rounds
+    const MAX_POINTS_PER_GAME = mode === 'Journey' ? MAX_POINTS_PER_VEHICLE * 10 : MAX_POINTS_PER_VEHICLE * 5; // Journey can have up to 10 rounds
     if (score > MAX_POINTS_PER_GAME) {
-      console.warn(`Suspicious score detected: ${score} for user ${userId}`);
+      console.warn(`Suspicious score detected: ${score} for user ${userId} in mode ${mode}`);
       return {
         statusCode: 400,
         headers: corsHeaders,
@@ -536,12 +536,13 @@ async function updateGameData(userId, gameData, userProfile) {
         const { levelId, stars, completed, score: journeyScore } = journeyData;
         const existing = currentData.stats.journeyProgress[levelId];
         
-        // Only update if better score or first attempt
-        if (!existing || existing.score < journeyScore) {
+        // Always update completion status if level is completed for the first time
+        // Or if better score is achieved
+        if (!existing || existing.score < journeyScore || (!existing.completed && completed)) {
           currentData.stats.journeyProgress[levelId] = {
-            stars,
-            score: journeyScore,
-            completed
+            stars: Math.max(stars, existing?.stars || 0),
+            score: Math.max(journeyScore, existing?.score || 0),
+            completed: completed || (existing?.completed || false)
           };
         }
       }
