@@ -190,6 +190,52 @@ exports.handler = async (event) => {
       return await getLeaderboard();
     }
 
+    if (path === '/create-challenge' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let challengeData;
+      try {
+        challengeData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await createChallenge(userId, challengeData, userProfile);
+    }
+
+    if (path === '/get-challenge' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await getChallenge(requestData.challengeId);
+    }
+
     if (path.startsWith('/images/') && httpMethod === 'GET') {
       return await getVehicleImage(path);
     }
@@ -398,7 +444,19 @@ async function updateGameData(userId, gameData, userProfile) {
     if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
 
     // Update stats
-    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData } = gameData;
+    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
+    
+    // Validate score (anti-cheat)
+    const MAX_POINTS_PER_VEHICLE = 210;
+    const MAX_POINTS_PER_GAME = MAX_POINTS_PER_VEHICLE * 10; // 2100 for max 10 rounds
+    if (score > MAX_POINTS_PER_GAME) {
+      console.warn(`Suspicious score detected: ${score} for user ${userId}`);
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid score value' })
+      };
+    }
     
     if (mode === 'bonus' && bonusData) {
       // Handle daily bonus
@@ -438,7 +496,7 @@ async function updateGameData(userId, gameData, userProfile) {
         currentData.stats.highScore = Math.max(currentData.stats.highScore, score);
       }
       
-      currentData.stats.correctAnswers += Math.floor(score / 25); // Adjusted for new scoring
+      currentData.stats.correctAnswers += correctCount;
       currentData.stats.incorrectAnswers += mistakes;
       
       const isPerfectGame = !isEndurance && mistakes === 0;
@@ -454,8 +512,9 @@ async function updateGameData(userId, gameData, userProfile) {
       const baseGears = Math.floor(score / 50); // 1 gear per 50 points
       const gearsGained = baseGears + (isPerfectGame ? 10 : 0);
       
-      const XP_PER_LEVEL = 500; // Reduced from 2500
-      const GEARS_PER_LEVEL_UP = 25; // Reduced from 50
+      const XP_PER_LEVEL = 500;
+      const GEARS_PER_LEVEL_UP = 25;
+      const PERFECT_BONUS_POINTS = 30;
       
       let newXp = currentData.stats.xp + xpGained;
       let newLevel = currentData.stats.level;
@@ -726,6 +785,83 @@ async function checkUsernameExists(username) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to check username' })
+    };
+  }
+}
+
+async function createChallenge(userId, challengeData, userProfile) {
+  try {
+    const challengeId = `challenge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const expirationTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const challenge = {
+      challengeId,
+      creatorId: userId,
+      creatorName: userProfile.username || userProfile.name,
+      ...challengeData,
+      createdAt: new Date().toISOString(),
+      expiresAt: expirationTime.toISOString(),
+      ttl: Math.floor(expirationTime.getTime() / 1000) // TTL in seconds
+    };
+    
+    await retryOperation(() => 
+      dynamodb.send(new PutCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        Item: challenge
+      }))
+    );
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ challengeId, success: true })
+    };
+  } catch (error) {
+    console.error('Create challenge error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to create challenge' })
+    };
+  }
+}
+
+async function getChallenge(challengeId) {
+  try {
+    const result = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        Key: { challengeId }
+      }))
+    );
+    
+    if (!result.Item) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Challenge not found' })
+      };
+    }
+    
+    // Check if expired
+    if (new Date(result.Item.expiresAt) < new Date()) {
+      return {
+        statusCode: 410,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Challenge expired' })
+      };
+    }
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify(result.Item)
+    };
+  } catch (error) {
+    console.error('Get challenge error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to get challenge' })
     };
   }
 }
