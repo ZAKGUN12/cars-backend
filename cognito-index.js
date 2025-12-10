@@ -533,17 +533,40 @@ async function updateGameData(userId, gameData, userProfile) {
       
       // Handle journey progress
       if (mode === 'Journey' && journeyData) {
-        const { levelId, stars, completed, score: journeyScore } = journeyData;
-        const existing = currentData.stats.journeyProgress[levelId];
-        
-        // Always update completion status if level is completed for the first time
-        // Or if better score is achieved
-        if (!existing || existing.score < journeyScore || (!existing.completed && completed)) {
-          currentData.stats.journeyProgress[levelId] = {
-            stars: Math.max(stars, existing?.stars || 0),
-            score: Math.max(journeyScore, existing?.score || 0),
-            completed: completed || (existing?.completed || false)
-          };
+        console.log('Processing journey data:', JSON.stringify(journeyData));
+        try {
+          const { levelId, stars, completed, score: journeyScore } = journeyData;
+          
+          // Validate journey data
+          if (!levelId || typeof stars !== 'number' || typeof completed !== 'boolean' || typeof journeyScore !== 'number') {
+            console.error('Invalid journey data:', journeyData);
+            throw new Error('Invalid journey data format');
+          }
+          
+          const existing = currentData.stats.journeyProgress[levelId];
+          
+          console.log('Journey progress update:', {
+            levelId,
+            stars,
+            completed,
+            journeyScore,
+            existing
+          });
+          
+          // Always update completion status if level is completed for the first time
+          // Or if better score is achieved
+          if (!existing || existing.score < journeyScore || (!existing.completed && completed)) {
+            currentData.stats.journeyProgress[levelId] = {
+              stars: Math.max(stars, existing?.stars || 0),
+              score: Math.max(journeyScore, existing?.score || 0),
+              completed: completed || (existing?.completed || false)
+            };
+            console.log('Journey progress updated:', currentData.stats.journeyProgress[levelId]);
+          }
+        } catch (journeyError) {
+          console.error('Journey data processing error:', journeyError);
+          // Don't throw the error, just log it and continue with the rest of the update
+          console.warn('Continuing with game stats update despite journey error');
         }
       }
       
