@@ -354,6 +354,7 @@ async function getGameData(userId, userProfile) {
     if (!gameData.stats.level) gameData.stats.level = 1;
     if (!gameData.stats.powerUps) gameData.stats.powerUps = { timeFreeze: 0, clueGiver: 0 };
     if (!gameData.stats.journeyProgress) gameData.stats.journeyProgress = {};
+    if (!gameData.stats.difficultyPlays) gameData.stats.difficultyPlays = { Easy: 0, Medium: 0, Hard: 0 };
 
     return {
       statusCode: 200,
@@ -442,6 +443,7 @@ async function updateGameData(userId, gameData, userProfile) {
     if (!currentData.stats.level) currentData.stats.level = 1;
     if (!currentData.stats.powerUps) currentData.stats.powerUps = { timeFreeze: 0, clueGiver: 0 };
     if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
+    if (!currentData.stats.difficultyPlays) currentData.stats.difficultyPlays = { Easy: 0, Medium: 0, Hard: 0 };
 
     // Update stats
     const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
