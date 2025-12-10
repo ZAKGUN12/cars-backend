@@ -509,31 +509,31 @@ async function updateGameData(userId, gameData, userProfile) {
       }
       
       // Optimized XP and level progression with realistic values
-      const baseXp = Math.floor(score / 10); // 1 XP per 10 points
-      const timeBonus = Math.max(0, Math.floor((score % 1000) / 100)); // Time bonus XP
-      const xpGained = baseXp + timeBonus + (isPerfectGame ? 25 : 0);
+      const baseXp = Math.floor(score / 10) || 0; // 1 XP per 10 points
+      const timeBonus = Math.max(0, Math.floor((score % 1000) / 100)) || 0; // Time bonus XP
+      const xpGained = (baseXp + timeBonus + (isPerfectGame ? 25 : 0)) || 0;
       
-      const baseGears = Math.floor(score / 50); // 1 gear per 50 points
-      const gearsGained = baseGears + (isPerfectGame ? 10 : 0);
+      const baseGears = Math.floor(score / 50) || 0; // 1 gear per 50 points
+      const gearsGained = (baseGears + (isPerfectGame ? 10 : 0)) || 0;
       
       const XP_PER_LEVEL = 500;
       const GEARS_PER_LEVEL_UP = 25;
       const PERFECT_BONUS_POINTS = 30;
       
-      let newXp = currentData.stats.xp + xpGained;
-      let newLevel = currentData.stats.level;
-      let newGears = currentData.stats.gears + gearsGained;
+      let newXp = (currentData.stats.xp + xpGained) || 0;
+      let newLevel = currentData.stats.level || 1;
+      let newGears = (currentData.stats.gears + gearsGained) || 0;
       
       if (newXp >= XP_PER_LEVEL) {
-        const levelsGained = Math.floor(newXp / XP_PER_LEVEL);
+        const levelsGained = Math.floor(newXp / XP_PER_LEVEL) || 0;
         newLevel += levelsGained;
-        newXp = newXp % XP_PER_LEVEL;
-        newGears += (GEARS_PER_LEVEL_UP * levelsGained);
+        newXp = (newXp % XP_PER_LEVEL) || 0;
+        newGears += (GEARS_PER_LEVEL_UP * levelsGained) || 0;
       }
       
-      currentData.stats.xp = newXp;
-      currentData.stats.level = newLevel;
-      currentData.stats.gears = newGears;
+      currentData.stats.xp = isNaN(newXp) ? 0 : newXp;
+      currentData.stats.level = isNaN(newLevel) ? 1 : newLevel;
+      currentData.stats.gears = isNaN(newGears) ? 0 : newGears;
       
       // Handle journey progress
       if (mode === 'Journey' && journeyData) {
