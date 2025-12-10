@@ -440,12 +440,25 @@ async function updateGameData(userId, gameData, userProfile) {
       }
     }
     
-    if (!currentData.stats.gears) currentData.stats.gears = 20;
-    if (!currentData.stats.xp) currentData.stats.xp = 0;
-    if (!currentData.stats.level) currentData.stats.level = 1;
+    // Ensure all numeric fields are valid numbers
+    currentData.stats.gears = Number(currentData.stats.gears) || 20;
+    currentData.stats.xp = Number(currentData.stats.xp) || 0;
+    currentData.stats.level = Number(currentData.stats.level) || 1;
+    currentData.stats.highScore = Number(currentData.stats.highScore) || 0;
+    currentData.stats.enduranceHighScore = Number(currentData.stats.enduranceHighScore) || 0;
+    currentData.stats.gamesPlayed = Number(currentData.stats.gamesPlayed) || 0;
+    currentData.stats.totalPoints = Number(currentData.stats.totalPoints) || 0;
+    currentData.stats.correctAnswers = Number(currentData.stats.correctAnswers) || 0;
+    currentData.stats.incorrectAnswers = Number(currentData.stats.incorrectAnswers) || 0;
+    currentData.stats.perfectRounds = Number(currentData.stats.perfectRounds) || 0;
     if (!currentData.stats.powerUps) currentData.stats.powerUps = { timeFreeze: 0, clueGiver: 0 };
+    currentData.stats.powerUps.timeFreeze = Number(currentData.stats.powerUps.timeFreeze) || 0;
+    currentData.stats.powerUps.clueGiver = Number(currentData.stats.powerUps.clueGiver) || 0;
     if (!currentData.stats.journeyProgress) currentData.stats.journeyProgress = {};
     if (!currentData.stats.difficultyPlays) currentData.stats.difficultyPlays = { Easy: 0, Medium: 0, Hard: 0 };
+    currentData.stats.difficultyPlays.Easy = Number(currentData.stats.difficultyPlays.Easy) || 0;
+    currentData.stats.difficultyPlays.Medium = Number(currentData.stats.difficultyPlays.Medium) || 0;
+    currentData.stats.difficultyPlays.Hard = Number(currentData.stats.difficultyPlays.Hard) || 0;
     if (!currentData.stats.gameHistory) currentData.stats.gameHistory = [];
 
     // Update stats
