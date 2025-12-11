@@ -271,6 +271,10 @@ exports.handler = async (event) => {
       return await getChallenge(requestData.challengeId);
     }
 
+    if (path === '/my-challenges' && httpMethod === 'GET') {
+      return await getMyChallenges(userId);
+    }
+
     if (path.startsWith('/images/') && httpMethod === 'GET') {
       return await getVehicleImage(path);
     }
@@ -927,15 +931,19 @@ async function checkUsernameExists(username) {
 async function createChallenge(userId, challengeData, userProfile) {
   try {
     const challengeId = `challenge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const expirationTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expirationTime = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     const challenge = {
       challengeId,
       creatorId: userId,
       creatorName: userProfile.username || userProfile.name,
-      ...challengeData,
+      targetPlayerId: challengeData.targetPlayerId,
+      targetPlayerName: challengeData.targetPlayerName,
+      gameMode: challengeData.gameMode || 'Classic',
+      difficulty: challengeData.difficulty || 'Medium',
+      status: 'pending',
       createdAt: new Date().toISOString(),
       expiresAt: expirationTime.toISOString(),
-      ttl: Math.floor(expirationTime.getTime() / 1000) // TTL in seconds
+      ttl: Math.floor(expirationTime.getTime() / 1000)
     };
     
     await retryOperation(() => 
@@ -997,6 +1005,37 @@ async function getChallenge(challengeId) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to get challenge' })
+    };
+  }
+}
+
+async function getMyChallenges(userId) {
+  try {
+    const result = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        FilterExpression: 'targetPlayerId = :userId AND #status = :status',
+        ExpressionAttributeNames: {
+          '#status': 'status'
+        },
+        ExpressionAttributeValues: {
+          ':userId': userId,
+          ':status': 'pending'
+        }
+      }))
+    );
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ challenges: result.Items || [] })
+    };
+  } catch (error) {
+    console.error('Get my challenges error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to get challenges' })
     };
   }
 }
