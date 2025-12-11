@@ -702,14 +702,17 @@ async function getLeaderboard() {
 
     const players = result.Items
       .map(item => {
-        // Generate UID-style username from database userId
+        // Use username from database table
         let displayName = 'Anonymous';
         
-        if (item.profile?.username && !item.profile.username.startsWith('Google_')) {
-          // Use custom username if set
+        if (item.username) {
+          // Use username field from database table (like "zekscaler", "icem")
+          displayName = item.username;
+        } else if (item.profile?.username && !item.profile.username.startsWith('Google_')) {
+          // Fallback to profile username if set
           displayName = item.profile.username;
         } else if (item.userId) {
-          // Generate UID from database userId (first 8 chars)
+          // Generate UID from database userId as last resort
           const uid = item.userId.replace(/-/g, '').substring(0, 8).toUpperCase();
           displayName = `UID_${uid}`;
         }
