@@ -701,18 +701,34 @@ async function getLeaderboard() {
     );
 
     const players = result.Items
-      .map(item => ({
-        userId: item.userId,
-        username: item.profile?.username || item.profile?.name || 'Anonymous',
-        picture: item.profile?.picture,
-        highScore: item.stats.highScore || 0,
-        level: item.stats.level || 1,
-        gamesPlayed: item.stats.gamesPlayed || 0,
-        totalPoints: item.stats.totalPoints || 0,
-        winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.correctAnswers / (item.stats.correctAnswers + item.stats.incorrectAnswers)) * 100) || 0 : 0,
-        lastActive: item.updatedAt || item.createdAt,
-        isOnline: item.updatedAt && (Date.now() - new Date(item.updatedAt).getTime()) < 300000 // 5 minutes
-      }))
+      .map(item => {
+        // Smart username display logic
+        let displayName = 'Anonymous';
+        
+        if (item.profile?.username && !item.profile.username.startsWith('Google_')) {
+          // Use custom username if set and not a Google ID
+          displayName = item.profile.username;
+        } else if (item.profile?.name) {
+          // Use Google name if available
+          displayName = item.profile.name;
+        } else if (item.profile?.email) {
+          // Use email prefix as fallback
+          displayName = item.profile.email.split('@')[0];
+        }
+        
+        return {
+          userId: item.userId,
+          username: displayName,
+          picture: item.profile?.picture,
+          highScore: item.stats.highScore || 0,
+          level: item.stats.level || 1,
+          gamesPlayed: item.stats.gamesPlayed || 0,
+          totalPoints: item.stats.totalPoints || 0,
+          winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.correctAnswers / (item.stats.correctAnswers + item.stats.incorrectAnswers)) * 100) || 0 : 0,
+          lastActive: item.updatedAt || item.createdAt,
+          isOnline: item.updatedAt && (Date.now() - new Date(item.updatedAt).getTime()) < 300000 // 5 minutes
+        };
+      })
       .filter(player => player.gamesPlayed > 0) // Only show players who have played
       .sort((a, b) => b.highScore - a.highScore)
       .slice(0, 50) // Show top 50 for rival challenges
