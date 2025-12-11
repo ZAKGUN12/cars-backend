@@ -81,6 +81,10 @@ exports.handler = async (event) => {
     }
 
     // Public endpoints that don't require authentication
+    if (path === '/leaderboard' && httpMethod === 'GET') {
+      return await getLeaderboard();
+    }
+    
     if (path === '/check-username' && httpMethod === 'POST') {
       if (!body) {
         return {
@@ -219,9 +223,7 @@ exports.handler = async (event) => {
       return await checkEmailExists(requestData.email);
     }
 
-    if (path === '/leaderboard' && httpMethod === 'GET') {
-      return await getLeaderboard();
-    }
+
 
     if (path === '/create-challenge' && httpMethod === 'POST') {
       if (!body) {
