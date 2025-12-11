@@ -702,18 +702,16 @@ async function getLeaderboard() {
 
     const players = result.Items
       .map(item => {
-        // Smart username display logic
+        // Generate UID-style username from database userId
         let displayName = 'Anonymous';
         
         if (item.profile?.username && !item.profile.username.startsWith('Google_')) {
-          // Use custom username if set and not a Google ID
+          // Use custom username if set
           displayName = item.profile.username;
-        } else if (item.profile?.name) {
-          // Use Google name if available
-          displayName = item.profile.name;
-        } else if (item.profile?.email) {
-          // Use email prefix as fallback
-          displayName = item.profile.email.split('@')[0];
+        } else if (item.userId) {
+          // Generate UID from database userId (first 8 chars)
+          const uid = item.userId.replace(/-/g, '').substring(0, 8).toUpperCase();
+          displayName = `UID_${uid}`;
         }
         
         return {
