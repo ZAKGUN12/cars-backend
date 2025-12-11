@@ -698,16 +698,22 @@ async function getLeaderboard() {
       }))
     );
 
-    const leaderboard = result.Items
+    const players = result.Items
       .map(item => ({
+        userId: item.userId,
         username: item.profile?.username || item.profile?.name || 'Anonymous',
         picture: item.profile?.picture,
         highScore: item.stats.highScore || 0,
         level: item.stats.level || 1,
-        gamesPlayed: item.stats.gamesPlayed || 0
+        gamesPlayed: item.stats.gamesPlayed || 0,
+        totalPoints: item.stats.totalPoints || 0,
+        winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.correctAnswers / (item.stats.correctAnswers + item.stats.incorrectAnswers)) * 100) || 0 : 0,
+        lastActive: item.updatedAt || item.createdAt,
+        isOnline: item.updatedAt && (Date.now() - new Date(item.updatedAt).getTime()) < 300000 // 5 minutes
       }))
+      .filter(player => player.gamesPlayed > 0) // Only show players who have played
       .sort((a, b) => b.highScore - a.highScore)
-      .slice(0, 10)
+      .slice(0, 50) // Show top 50 for rival challenges
       .map((user, index) => ({
         rank: index + 1,
         ...user
@@ -716,7 +722,11 @@ async function getLeaderboard() {
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify(leaderboard)
+      body: JSON.stringify({
+        leaderboard: players.slice(0, 10), // Top 10 for leaderboard
+        rivals: players, // All 50 for rival selection
+        totalPlayers: result.Items.length
+      })
     };
   } catch (error) {
     console.error('Get leaderboard error:', error);
