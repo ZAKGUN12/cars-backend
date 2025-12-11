@@ -1,5 +1,28 @@
 // Updated: 2024-01-15
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+
+// Rate limiting
+const rateLimits = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_REQUESTS_PER_MINUTE = 30;
+
+function checkRateLimit(userId) {
+  const now = Date.now();
+  const userRequests = rateLimits.get(userId) || [];
+  
+  // Remove old requests outside the window
+  const recentRequests = userRequests.filter(time => now - time < RATE_LIMIT_WINDOW);
+  
+  if (recentRequests.length >= MAX_REQUESTS_PER_MINUTE) {
+    return false; // Rate limit exceeded
+  }
+  
+  // Add current request
+  recentRequests.push(now);
+  rateLimits.set(userId, recentRequests);
+  
+  return true; // Request allowed
+}
 const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 
 const client = new DynamoDBClient({ 
@@ -90,6 +113,15 @@ exports.handler = async (event) => {
         statusCode: 401,
         headers: corsHeaders,
         body: JSON.stringify({ error: 'Unauthorized - Please login again', code: 'MISSING_USER_ID' })
+      };
+    }
+    
+    // Rate limiting check
+    if (!checkRateLimit(userId)) {
+      return {
+        statusCode: 429,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' })
       };
     }
     
@@ -464,16 +496,42 @@ async function updateGameData(userId, gameData, userProfile) {
     // Update stats
     const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
     
-    // Validate score (anti-cheat) - Allow higher scores for journey mode
+    // Enhanced server-side score validation (anti-cheat)
     const MAX_POINTS_PER_VEHICLE = 210;
-    const MAX_POINTS_PER_GAME = mode === 'Journey' ? MAX_POINTS_PER_VEHICLE * 10 : MAX_POINTS_PER_VEHICLE * 5; // Journey can have up to 10 rounds
-    if (score > MAX_POINTS_PER_GAME) {
-      console.warn(`Suspicious score detected: ${score} for user ${userId} in mode ${mode}`);
+    const MAX_POINTS_PER_GAME = mode === 'Journey' ? MAX_POINTS_PER_VEHICLE * 10 : MAX_POINTS_PER_VEHICLE * 5;
+    const MIN_TIME_PER_ROUND = 3; // Minimum 3 seconds per round
+    const MAX_PERFECT_STREAK = 10; // Maximum consecutive perfect games
+    
+    // Basic score validation
+    if (score > MAX_POINTS_PER_GAME || score < 0) {
+      console.warn(`Invalid score detected: ${score} for user ${userId} in mode ${mode}`);
       return {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({ error: 'Invalid score value' })
       };
+    }
+    
+    // Time-based validation (if provided)
+    if (gameData.timeSpent && gameData.timeSpent < MIN_TIME_PER_ROUND) {
+      console.warn(`Suspiciously fast completion: ${gameData.timeSpent}s for user ${userId}`);
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid completion time' })
+      };
+    }
+    
+    // Perfect game streak validation
+    if (mistakes === 0 && currentData.stats.gameHistory) {
+      const recentPerfectGames = currentData.stats.gameHistory
+        .slice(0, MAX_PERFECT_STREAK)
+        .filter(game => game.mistakes === 0).length;
+      
+      if (recentPerfectGames >= MAX_PERFECT_STREAK) {
+        console.warn(`Suspicious perfect streak for user ${userId}`);
+        // Don't block, but flag for review
+      }
     }
     
     if (mode === 'bonus' && bonusData) {
