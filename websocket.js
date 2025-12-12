@@ -6,12 +6,17 @@ const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'eu-west-1
 const dynamodb = DynamoDBDocumentClient.from(client);
 
 exports.handler = async (event) => {
+  console.log('WebSocket event:', JSON.stringify(event, null, 2));
+  
   const { connectionId, routeKey } = event.requestContext;
   const userId = event.queryStringParameters?.userId;
 
   try {
     if (routeKey === '$connect') {
+      console.log('WebSocket connect:', { connectionId, userId });
+      
       if (!userId) {
+        console.error('Missing userId in connect');
         return { statusCode: 400, body: 'Missing userId' };
       }
       
@@ -25,22 +30,27 @@ exports.handler = async (event) => {
         }
       }));
       
+      console.log('WebSocket connection stored');
       return { statusCode: 200, body: 'Connected' };
     }
     
     if (routeKey === '$disconnect') {
+      console.log('WebSocket disconnect:', { connectionId });
+      
       await dynamodb.send(new DeleteCommand({
         TableName: process.env.CONNECTIONS_TABLE,
         Key: { connectionId }
       }));
       
+      console.log('WebSocket connection removed');
       return { statusCode: 200, body: 'Disconnected' };
     }
     
+    console.log('Unknown route:', routeKey);
     return { statusCode: 200, body: 'OK' };
   } catch (error) {
     console.error('WebSocket error:', error);
-    return { statusCode: 500, body: 'Internal server error' };
+    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
   }
 };
 

@@ -85,6 +85,37 @@ exports.handler = async (event) => {
       return await getLeaderboard();
     }
     
+    if (path === '/update-activity' && httpMethod === 'POST') {
+      // Update user activity timestamp
+      if (userId) {
+        try {
+          const existing = await retryOperation(() => 
+            dynamodb.send(new GetCommand({
+              TableName: process.env.GAME_DATA_TABLE,
+              Key: { userId }
+            }))
+          );
+          
+          if (existing.Item) {
+            existing.Item.updatedAt = new Date().toISOString();
+            await retryOperation(() => 
+              dynamodb.send(new PutCommand({
+                TableName: process.env.GAME_DATA_TABLE,
+                Item: existing.Item
+              }))
+            );
+          }
+        } catch (error) {
+          console.warn('Failed to update activity:', error);
+        }
+      }
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: true })
+      };
+    }
+    
     if (path === '/check-username' && httpMethod === 'POST') {
       if (!body) {
         return {
