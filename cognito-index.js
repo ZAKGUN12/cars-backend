@@ -1097,8 +1097,17 @@ async function createChallenge(userId, challengeData, userProfile) {
       }))
     );
     
-    // Trigger real-time notification (simplified - in production use SNS/SQS)
-    console.log(`New challenge created for user ${challengeData.targetPlayerId}`);
+    // Trigger real-time WebSocket notification
+    try {
+      const { sendNotification } = require('./websocket');
+      await sendNotification(challengeData.targetPlayerId, {
+        type: 'new_challenge',
+        challengeId,
+        challengerName: userProfile.username || userProfile.name
+      });
+    } catch (notifyError) {
+      console.warn('Failed to send WebSocket notification:', notifyError);
+    }
     
     return {
       statusCode: 200,
