@@ -329,6 +329,21 @@ exports.handler = async (event) => {
       return await declineChallenge(userId, requestData.challengeId);
     }
 
+    if (path === '/notifications' && httpMethod === 'GET') {
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        },
+        body: `data: ${JSON.stringify({type: 'connected', userId})}
+
+`
+      };
+    }
+
     if (path.startsWith('/images/') && httpMethod === 'GET') {
       return await getVehicleImage(path);
     }
@@ -1081,6 +1096,9 @@ async function createChallenge(userId, challengeData, userProfile) {
         Item: challenge
       }))
     );
+    
+    // Trigger real-time notification (simplified - in production use SNS/SQS)
+    console.log(`New challenge created for user ${challengeData.targetPlayerId}`);
     
     return {
       statusCode: 200,
