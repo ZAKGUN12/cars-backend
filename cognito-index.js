@@ -1171,6 +1171,18 @@ async function getMyChallenges(userId) {
 
 async function acceptChallenge(userId, challengeId) {
   try {
+    // Validate challengeId
+    if (!challengeId || typeof challengeId !== 'string') {
+      console.error('Accept challenge: Missing or invalid challengeId:', challengeId);
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Challenge ID is required', code: 'MISSING_CHALLENGE_ID' })
+      };
+    }
+    
+    console.log('Accepting challenge:', challengeId, 'for user:', userId);
+    
     // Get the challenge
     const result = await retryOperation(() => 
       dynamodb.send(new GetCommand({
