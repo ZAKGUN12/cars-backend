@@ -814,7 +814,7 @@ async function getLeaderboard() {
           totalPoints: item.stats.totalPoints || 0,
           winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.correctAnswers / (item.stats.correctAnswers + item.stats.incorrectAnswers)) * 100) || 0 : 0,
           lastActive: item.updatedAt || item.createdAt,
-          isOnline: item.updatedAt && (Date.now() - new Date(item.updatedAt).getTime()) < 3600000 // 1 hour
+          isOnline: item.updatedAt && (Date.now() - new Date(item.updatedAt).getTime()) < 7200000 // 2 hours
         };
       })
       .filter(player => player.username !== 'Anonymous' && player.gamesPlayed >= 0) // Show all players with usernames
