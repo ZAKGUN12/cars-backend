@@ -1076,10 +1076,12 @@ async function createChallenge(userId, challengeData, userProfile) {
   try {
     const challengeId = `challenge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const expirationTime = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const challengerName = userProfile.username || userProfile.name || 'Unknown Player';
     const challenge = {
       challengeId,
       creatorId: userId,
-      creatorName: userProfile.username || userProfile.name,
+      creatorName: challengerName,
+      challengerName: challengerName, // Add this for frontend compatibility
       targetPlayerId: challengeData.targetPlayerId,
       targetPlayerName: challengeData.targetPlayerName,
       gameMode: challengeData.gameMode || 'Classic',
@@ -1103,7 +1105,10 @@ async function createChallenge(userId, challengeData, userProfile) {
       await sendNotification(challengeData.targetPlayerId, {
         type: 'new_challenge',
         challengeId,
-        challengerName: userProfile.username || userProfile.name
+        challengerName,
+        gameMode: challenge.gameMode,
+        difficulty: challenge.difficulty,
+        createdAt: challenge.createdAt
       });
     } catch (notifyError) {
       console.warn('Failed to send WebSocket notification:', notifyError);
