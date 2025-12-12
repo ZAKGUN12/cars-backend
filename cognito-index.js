@@ -283,6 +283,52 @@ exports.handler = async (event) => {
       return await getMyChallenges(userId);
     }
 
+    if (path === '/accept-challenge' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await acceptChallenge(userId, requestData.challengeId);
+    }
+
+    if (path === '/decline-challenge' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await declineChallenge(userId, requestData.challengeId);
+    }
+
     if (path.startsWith('/images/') && httpMethod === 'GET') {
       return await getVehicleImage(path);
     }
@@ -1119,6 +1165,137 @@ async function getMyChallenges(userId) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to get challenges' })
+    };
+  }
+}
+
+async function acceptChallenge(userId, challengeId) {
+  try {
+    // Get the challenge
+    const result = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        Key: { challengeId }
+      }))
+    );
+    
+    if (!result.Item) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Challenge not found' })
+      };
+    }
+    
+    const challenge = result.Item;
+    
+    // Verify user is the target
+    if (challenge.targetPlayerId !== userId) {
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Not authorized to accept this challenge' })
+      };
+    }
+    
+    // Check if expired
+    if (new Date(challenge.expiresAt) < new Date()) {
+      return {
+        statusCode: 410,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Challenge expired' })
+      };
+    }
+    
+    // Update challenge status
+    await retryOperation(() => 
+      dynamodb.send(new PutCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        Item: {
+          ...challenge,
+          status: 'accepted',
+          acceptedAt: new Date().toISOString()
+        }
+      }))
+    );
+    
+    // Return challenge data for starting the game
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: true,
+        challengeData: {
+          challengeId,
+          challengerName: challenge.creatorName,
+          gameMode: challenge.gameMode,
+          difficulty: challenge.difficulty,
+          level: challenge.difficulty
+        }
+      })
+    };
+  } catch (error) {
+    console.error('Accept challenge error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to accept challenge' })
+    };
+  }
+}
+
+async function declineChallenge(userId, challengeId) {
+  try {
+    // Get the challenge
+    const result = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        Key: { challengeId }
+      }))
+    );
+    
+    if (!result.Item) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Challenge not found' })
+      };
+    }
+    
+    const challenge = result.Item;
+    
+    // Verify user is the target
+    if (challenge.targetPlayerId !== userId) {
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Not authorized to decline this challenge' })
+      };
+    }
+    
+    // Update challenge status
+    await retryOperation(() => 
+      dynamodb.send(new PutCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        Item: {
+          ...challenge,
+          status: 'declined',
+          declinedAt: new Date().toISOString()
+        }
+      }))
+    );
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true })
+    };
+  } catch (error) {
+    console.error('Decline challenge error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to decline challenge' })
     };
   }
 }
