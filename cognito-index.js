@@ -178,7 +178,10 @@ exports.handler = async (event) => {
     }
 
     if (path === '/setup-username' && httpMethod === 'POST') {
+      console.log('Setup username request received for user:', userId);
+      
       if (!body) {
+        console.error('Setup username: Missing request body');
         return {
           statusCode: 400,
           headers: corsHeaders,
@@ -189,7 +192,9 @@ exports.handler = async (event) => {
       let requestData;
       try {
         requestData = JSON.parse(body);
+        console.log('Setup username request data:', requestData);
       } catch (parseError) {
+        console.error('Setup username: Invalid JSON in request body:', parseError);
         return {
           statusCode: 400,
           headers: corsHeaders,
@@ -197,7 +202,10 @@ exports.handler = async (event) => {
         };
       }
       
-      return await setupUsername(userId, requestData.username, userProfile);
+      console.log('Calling setupUsername function...');
+      const result = await setupUsername(userId, requestData.username, userProfile);
+      console.log('Setup username result:', result);
+      return result;
     }
 
     if (path === '/check-email' && httpMethod === 'POST') {
