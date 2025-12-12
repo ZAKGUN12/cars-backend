@@ -4,7 +4,7 @@ const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 // Rate limiting
 const rateLimits = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
-const MAX_REQUESTS_PER_MINUTE = 30;
+const MAX_REQUESTS_PER_MINUTE = 100;
 
 function checkRateLimit(userId) {
   const now = Date.now();
