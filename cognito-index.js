@@ -742,7 +742,7 @@ async function getLeaderboard() {
           isOnline: item.updatedAt && (Date.now() - new Date(item.updatedAt).getTime()) < 300000 // 5 minutes
         };
       })
-      .filter(player => player.gamesPlayed > 0) // Only show players who have played
+      .filter(player => player.username !== 'Anonymous' && player.gamesPlayed >= 0) // Show all players with usernames
       .sort((a, b) => b.highScore - a.highScore)
       .slice(0, 50) // Show top 50 for rival challenges
       .map((user, index) => ({
