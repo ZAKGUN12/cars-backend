@@ -370,6 +370,30 @@ async function getGameData(userId, userProfile) {
       updatedAt: new Date().toISOString()
     };
 
+    // Check if user exists by email first (for account linking)
+    if (!gameData.userId) {
+      const existingUserByEmail = await retryOperation(() => 
+        dynamodb.send(new ScanCommand({
+          TableName: process.env.GAME_DATA_TABLE,
+          FilterExpression: '#profile.#email = :email',
+          ExpressionAttributeNames: {
+            '#profile': 'profile',
+            '#email': 'email'
+          },
+          ExpressionAttributeValues: {
+            ':email': userProfile.email
+          }
+        }))
+      );
+      
+      if (existingUserByEmail.Items && existingUserByEmail.Items.length > 0) {
+        // Found existing user with same email, merge data
+        const existingUser = existingUserByEmail.Items[0];
+        gameData = existingUser;
+        console.log('Found existing user by email, merging data:', existingUser.userId);
+      }
+    }
+
     // Ensure all required properties exist (migration for existing users)
     if (!gameData.profile) {
       gameData.profile = {
