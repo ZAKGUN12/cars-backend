@@ -331,12 +331,53 @@ exports.handler = async (event) => {
 
 async function getGameData(userId, userProfile) {
   try {
-    const result = await retryOperation(() => 
+    let result = await retryOperation(() => 
       dynamodb.send(new GetCommand({
         TableName: process.env.GAME_DATA_TABLE,
         Key: { userId }
       }))
     );
+
+    // If no user found by userId, check by email for account linking
+    if (!result.Item && userProfile.email) {
+      console.log('User not found by userId, checking by email:', userProfile.email);
+      const existingUserByEmail = await retryOperation(() => 
+        dynamodb.send(new ScanCommand({
+          TableName: process.env.GAME_DATA_TABLE,
+          FilterExpression: '#profile.#email = :email',
+          ExpressionAttributeNames: {
+            '#profile': 'profile',
+            '#email': 'email'
+          },
+          ExpressionAttributeValues: {
+            ':email': userProfile.email
+          }
+        }))
+      );
+      
+      if (existingUserByEmail.Items && existingUserByEmail.Items.length > 0) {
+        console.log('Found existing user by email, creating linked account');
+        const existingUser = existingUserByEmail.Items[0];
+        
+        // Create new record with current userId but preserve existing data
+        const linkedUser = {
+          ...existingUser,
+          userId: userId, // Use current userId
+          updatedAt: new Date().toISOString()
+        };
+        
+        // Save the linked account
+        await retryOperation(() => 
+          dynamodb.send(new PutCommand({
+            TableName: process.env.GAME_DATA_TABLE,
+            Item: linkedUser
+          }))
+        );
+        
+        result.Item = linkedUser;
+        console.log('Account linked successfully for user:', userId);
+      }
+    }
 
     const gameData = result.Item || {
       userId,
