@@ -85,37 +85,6 @@ exports.handler = async (event) => {
       return await getLeaderboard();
     }
     
-    if (path === '/update-activity' && httpMethod === 'POST') {
-      // Update user activity timestamp
-      if (userId) {
-        try {
-          const existing = await retryOperation(() => 
-            dynamodb.send(new GetCommand({
-              TableName: process.env.GAME_DATA_TABLE,
-              Key: { userId }
-            }))
-          );
-          
-          if (existing.Item) {
-            existing.Item.updatedAt = new Date().toISOString();
-            await retryOperation(() => 
-              dynamodb.send(new PutCommand({
-                TableName: process.env.GAME_DATA_TABLE,
-                Item: existing.Item
-              }))
-            );
-          }
-        } catch (error) {
-          console.warn('Failed to update activity:', error);
-        }
-      }
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify({ success: true })
-      };
-    }
-    
     if (path === '/check-username' && httpMethod === 'POST') {
       if (!body) {
         return {
@@ -137,6 +106,42 @@ exports.handler = async (event) => {
       }
       
       return await checkUsernameExists(requestData.username);
+    }
+    
+    // Extract user info from Cognito JWT for activity update
+    const claims = event.requestContext?.authorizer?.claims;
+    const activityUserId = claims?.sub;
+    
+    if (path === '/update-activity' && httpMethod === 'POST') {
+      // Update user activity timestamp
+      if (activityUserId) {
+        try {
+          const existing = await retryOperation(() => 
+            dynamodb.send(new GetCommand({
+              TableName: process.env.GAME_DATA_TABLE,
+              Key: { userId: activityUserId }
+            }))
+          );
+          
+          if (existing.Item) {
+            existing.Item.updatedAt = new Date().toISOString();
+            existing.Item.lastActivity = new Date().toISOString();
+            await retryOperation(() => 
+              dynamodb.send(new PutCommand({
+                TableName: process.env.GAME_DATA_TABLE,
+                Item: existing.Item
+              }))
+            );
+          }
+        } catch (error) {
+          console.warn('Failed to update activity:', error);
+        }
+      }
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: true })
+      };
     }
 
     // Extract user info from Cognito JWT
@@ -358,6 +363,31 @@ exports.handler = async (event) => {
       }
       
       return await declineChallenge(userId, requestData.challengeId);
+    }
+
+    // New rival challenge endpoints
+    if (path === '/matchmaking/join-queue' && httpMethod === 'POST') {
+      return await joinMatchmakingQueue(userId, JSON.parse(body || '{}'), userProfile);
+    }
+
+    if (path === '/matchmaking/leave-queue' && httpMethod === 'POST') {
+      return await leaveMatchmakingQueue(userId);
+    }
+
+    if (path === '/tournaments/active' && httpMethod === 'GET') {
+      return await getActiveTournaments();
+    }
+
+    if (path === '/tournaments/join' && httpMethod === 'POST') {
+      return await joinTournament(userId, JSON.parse(body || '{}'), userProfile);
+    }
+
+    if (path === '/challenges/history' && httpMethod === 'GET') {
+      return await getChallengeHistory(userId);
+    }
+
+    if (path === '/challenges/revenge' && httpMethod === 'POST') {
+      return await createRevengeChallenge(userId, JSON.parse(body || '{}'), userProfile);
     }
 
     if (path === '/notifications' && httpMethod === 'GET') {
@@ -905,8 +935,8 @@ async function getLeaderboard() {
           gamesPlayed: item.stats.gamesPlayed || 0,
           totalPoints: item.stats.totalPoints || 0,
           winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.correctAnswers / (item.stats.correctAnswers + item.stats.incorrectAnswers)) * 100) || 0 : 0,
-          lastActive: item.updatedAt || item.createdAt,
-          isOnline: item.updatedAt && (Date.now() - new Date(item.updatedAt).getTime()) < 300000 // 5 minutes
+          lastActive: item.lastActivity || item.updatedAt || item.createdAt,
+          isOnline: (item.lastActivity || item.updatedAt) && (Date.now() - new Date(item.lastActivity || item.updatedAt).getTime()) < 180000 // 3 minutes
         };
       })
       .filter(player => player.username !== 'Anonymous' && player.gamesPlayed >= 0) // Show all players with usernames
@@ -1394,6 +1424,161 @@ async function getVehicleImage(path) {
       statusCode: 404,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Image not found' })
+    };
+  }
+}
+
+// New rival challenge functions
+async function joinMatchmakingQueue(userId, queueData, userProfile) {
+  try {
+    const queueEntry = {
+      userId,
+      username: userProfile.username || userProfile.name,
+      skillLevel: queueData.skillLevel || 1,
+      preferredDifficulty: queueData.difficulty || 'Medium',
+      joinedAt: new Date().toISOString(),
+      ttl: Math.floor(Date.now() / 1000) + 300 // 5 minutes
+    };
+    
+    await dynamodb.send(new PutCommand({
+      TableName: process.env.MATCHMAKING_TABLE,
+      Item: queueEntry
+    }));
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, estimatedWait: 15 })
+    };
+  } catch (error) {
+    console.error('Join queue error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to join queue' })
+    };
+  }
+}
+
+async function leaveMatchmakingQueue(userId) {
+  try {
+    await dynamodb.send(new DeleteCommand({
+      TableName: process.env.MATCHMAKING_TABLE,
+      Key: { userId }
+    }));
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to leave queue' })
+    };
+  }
+}
+
+async function getActiveTournaments() {
+  try {
+    const mockTournament = {
+      tournamentId: 'weekly_001',
+      round: 'quarterfinal',
+      participants: [],
+      matches: [],
+      prizePool: 500,
+      startTime: new Date().toISOString()
+    };
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ tournaments: [mockTournament] })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to get tournaments' })
+    };
+  }
+}
+
+async function joinTournament(userId, tournamentData, userProfile) {
+  try {
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, tournamentId: tournamentData.tournamentId })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to join tournament' })
+    };
+  }
+}
+
+async function getChallengeHistory(userId) {
+  try {
+    const result = await dynamodb.send(new ScanCommand({
+      TableName: process.env.CHALLENGE_TABLE,
+      FilterExpression: 'creatorId = :userId OR targetPlayerId = :userId',
+      ExpressionAttributeValues: {
+        ':userId': userId
+      }
+    }));
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ challenges: result.Items || [] })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to get challenge history' })
+    };
+  }
+}
+
+async function createRevengeChallenge(userId, revengeData, userProfile) {
+  try {
+    const challengeId = `revenge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const challenge = {
+      challengeId,
+      creatorId: userId,
+      creatorName: userProfile.username || userProfile.name,
+      targetPlayerId: revengeData.targetPlayerId,
+      targetPlayerName: revengeData.targetPlayerName,
+      gameMode: 'Revenge',
+      difficulty: revengeData.difficulty,
+      originalChallengeId: revengeData.originalChallengeId,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      ttl: Math.floor((Date.now() + 24 * 60 * 60 * 1000) / 1000)
+    };
+    
+    await dynamodb.send(new PutCommand({
+      TableName: process.env.CHALLENGE_TABLE,
+      Item: challenge
+    }));
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ challengeId, success: true })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to create revenge challenge' })
     };
   }
 }
