@@ -1458,10 +1458,12 @@ async function joinMatchmakingQueue(userId, queueData, userProfile) {
 
     console.log('Player joined real matchmaking queue:', { userId, username, skillLevel, difficulty });
     
-    // Try to find immediate match
+    // Try to find immediate match after adding to queue
     const match = await findMatchForPlayer(userId, username, skillLevel, difficulty);
     
     if (match) {
+      console.log('Match found immediately:', { userId, matchUserId: match.userId });
+      
       // Remove both players from queue
       await Promise.all([
         dynamodb.send(new DeleteCommand({
@@ -1493,6 +1495,7 @@ async function joinMatchmakingQueue(userId, queueData, userProfile) {
             highScore: skillLevel
           }
         });
+        console.log('WebSocket notifications sent to both players');
       } catch (notifyError) {
         console.warn('Failed to send match notifications:', notifyError);
       }
@@ -1556,6 +1559,8 @@ async function leaveMatchmakingQueue(userId) {
 // Helper function for matchmaking
 async function findMatchForPlayer(userId, username, skillLevel, difficulty) {
   try {
+    console.log('Looking for match for player:', { userId, username, skillLevel, difficulty });
+    
     // Get all players in queue for the same difficulty
     const result = await retryOperation(() => 
       dynamodb.send(new ScanCommand({
@@ -1569,8 +1574,10 @@ async function findMatchForPlayer(userId, username, skillLevel, difficulty) {
     );
 
     const availablePlayers = result.Items || [];
+    console.log('Available players found:', availablePlayers.length, availablePlayers.map(p => ({ userId: p.userId, username: p.username })));
     
     if (availablePlayers.length === 0) {
+      console.log('No available players found');
       return null;
     }
 
@@ -1579,8 +1586,10 @@ async function findMatchForPlayer(userId, username, skillLevel, difficulty) {
       Math.abs(player.skillLevel - skillLevel) <= 200
     );
 
-    // Return best match or first available player
-    return skillMatched || availablePlayers[0];
+    const match = skillMatched || availablePlayers[0];
+    console.log('Match selected:', { matchUserId: match.userId, matchUsername: match.username });
+    
+    return match;
 
   } catch (error) {
     console.error('Find match error:', error);
