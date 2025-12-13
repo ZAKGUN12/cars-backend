@@ -23,7 +23,7 @@ function checkRateLimit(userId) {
   
   return true; // Request allowed
 }
-const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
 
 const client = new DynamoDBClient({ 
   region: process.env.AWS_REGION || 'eu-west-1',
@@ -1436,10 +1436,86 @@ async function joinMatchmakingQueue(userId, queueData, userProfile) {
       }
     });
     
+    // Add to real matchmaking queue
+    const { skillLevel = 0, difficulty = 'Medium' } = queueData;
+    const username = userProfile.username || userProfile.name || 'Unknown';
+    
+    const queueItem = {
+      userId,
+      username,
+      skillLevel,
+      difficulty,
+      joinedAt: new Date().toISOString(),
+      ttl: Math.floor(Date.now() / 1000) + 300 // 5 minutes TTL
+    };
+
+    await retryOperation(() => 
+      dynamodb.send(new PutCommand({
+        TableName: process.env.MATCHMAKING_TABLE,
+        Item: queueItem
+      }))
+    );
+
+    console.log('Player joined real matchmaking queue:', { userId, username, skillLevel, difficulty });
+    
+    // Try to find immediate match
+    const match = await findMatchForPlayer(userId, username, skillLevel, difficulty);
+    
+    if (match) {
+      // Remove both players from queue
+      await Promise.all([
+        dynamodb.send(new DeleteCommand({
+          TableName: process.env.MATCHMAKING_TABLE,
+          Key: { userId }
+        })),
+        dynamodb.send(new DeleteCommand({
+          TableName: process.env.MATCHMAKING_TABLE,
+          Key: { userId: match.userId }
+        }))
+      ]);
+
+      // Notify match found via WebSocket
+      try {
+        const { sendNotification } = require('./websocket');
+        await sendNotification(userId, {
+          type: 'match_found',
+          opponent: {
+            username: match.username,
+            skillLevel: match.skillLevel,
+            highScore: match.skillLevel
+          }
+        });
+        await sendNotification(match.userId, {
+          type: 'match_found',
+          opponent: {
+            username,
+            skillLevel,
+            highScore: skillLevel
+          }
+        });
+      } catch (notifyError) {
+        console.warn('Failed to send match notifications:', notifyError);
+      }
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ 
+          success: true, 
+          matchFound: true,
+          opponent: {
+            username: match.username,
+            skillLevel: match.skillLevel
+          },
+          estimatedWait: 0 
+        })
+      };
+    }
+    
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ success: true, estimatedWait: 5 })
+      body: JSON.stringify({ success: true, estimatedWait: 30 })
     };
   } catch (error) {
     console.error('Join queue error:', error);
@@ -1453,18 +1529,62 @@ async function joinMatchmakingQueue(userId, queueData, userProfile) {
 
 async function leaveMatchmakingQueue(userId) {
   try {
-    // Just return success - no queue to leave from
+    await retryOperation(() => 
+      dynamodb.send(new DeleteCommand({
+        TableName: process.env.MATCHMAKING_TABLE,
+        Key: { userId }
+      }))
+    );
+
+    console.log('Player left real matchmaking queue:', userId);
+    
     return {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({ success: true })
     };
   } catch (error) {
+    console.error('Leave queue error:', error);
     return {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to leave queue' })
     };
+  }
+}
+
+// Helper function for matchmaking
+async function findMatchForPlayer(userId, username, skillLevel, difficulty) {
+  try {
+    // Get all players in queue for the same difficulty
+    const result = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({
+        TableName: process.env.MATCHMAKING_TABLE,
+        FilterExpression: 'difficulty = :difficulty AND userId <> :userId',
+        ExpressionAttributeValues: {
+          ':difficulty': difficulty,
+          ':userId': userId
+        }
+      }))
+    );
+
+    const availablePlayers = result.Items || [];
+    
+    if (availablePlayers.length === 0) {
+      return null;
+    }
+
+    // Find skill-matched opponent (within 200 points)
+    const skillMatched = availablePlayers.find(player => 
+      Math.abs(player.skillLevel - skillLevel) <= 200
+    );
+
+    // Return best match or first available player
+    return skillMatched || availablePlayers[0];
+
+  } catch (error) {
+    console.error('Find match error:', error);
+    return null;
   }
 }
 
