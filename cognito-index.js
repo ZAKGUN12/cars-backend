@@ -1417,24 +1417,29 @@ async function getVehicleImage(path) {
 // New rival challenge functions
 async function joinMatchmakingQueue(userId, queueData, userProfile) {
   try {
-    const queueEntry = {
-      userId,
-      username: userProfile.username || userProfile.name,
-      skillLevel: queueData.skillLevel || 1,
-      preferredDifficulty: queueData.difficulty || 'Medium',
-      joinedAt: new Date().toISOString(),
-      ttl: Math.floor(Date.now() / 1000) + 300 // 5 minutes
-    };
-    
-    await dynamodb.send(new PutCommand({
-      TableName: process.env.MATCHMAKING_TABLE,
-      Item: queueEntry
-    }));
+    // Update user activity to mark as online
+    await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Key: { userId }
+      }))
+    ).then(async (result) => {
+      if (result.Item) {
+        result.Item.lastActivity = new Date().toISOString();
+        result.Item.updatedAt = new Date().toISOString();
+        await retryOperation(() => 
+          dynamodb.send(new PutCommand({
+            TableName: process.env.GAME_DATA_TABLE,
+            Item: result.Item
+          }))
+        );
+      }
+    });
     
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ success: true, estimatedWait: 15 })
+      body: JSON.stringify({ success: true, estimatedWait: 5 })
     };
   } catch (error) {
     console.error('Join queue error:', error);
@@ -1448,11 +1453,7 @@ async function joinMatchmakingQueue(userId, queueData, userProfile) {
 
 async function leaveMatchmakingQueue(userId) {
   try {
-    await dynamodb.send(new DeleteCommand({
-      TableName: process.env.MATCHMAKING_TABLE,
-      Key: { userId }
-    }));
-    
+    // Just return success - no queue to leave from
     return {
       statusCode: 200,
       headers: corsHeaders,
