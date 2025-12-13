@@ -108,11 +108,11 @@ exports.handler = async (event) => {
       return await checkUsernameExists(requestData.username);
     }
     
-    // Extract user info from Cognito JWT for activity update
-    const claims = event.requestContext?.authorizer?.claims;
-    const activityUserId = claims?.sub;
-    
     if (path === '/update-activity' && httpMethod === 'POST') {
+      // Extract user info from Cognito JWT for activity update
+      const activityClaims = event.requestContext?.authorizer?.claims;
+      const activityUserId = activityClaims?.sub;
+      
       // Update user activity timestamp
       if (activityUserId) {
         try {
