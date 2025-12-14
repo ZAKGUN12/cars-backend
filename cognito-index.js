@@ -365,13 +365,9 @@ exports.handler = async (event) => {
       return await declineChallenge(userId, requestData.challengeId);
     }
 
-    // New rival challenge endpoints
-    if (path === '/matchmaking/join-queue' && httpMethod === 'POST') {
-      return await joinMatchmakingQueue(userId, JSON.parse(body || '{}'), userProfile);
-    }
-
-    if (path === '/matchmaking/leave-queue' && httpMethod === 'POST') {
-      return await leaveMatchmakingQueue(userId);
+    // Quick match endpoint - shows online players for direct challenges
+    if (path === '/quick-match' && httpMethod === 'GET') {
+      return await getOnlinePlayersForQuickMatch(userId);
     }
 
 
@@ -1414,228 +1410,73 @@ async function getVehicleImage(path) {
   }
 }
 
-// New rival challenge functions
-async function joinMatchmakingQueue(userId, queueData, userProfile) {
+
+
+
+// Quick match function - returns only online players
+async function getOnlinePlayersForQuickMatch(currentUserId) {
   try {
-    // Update user activity to mark as online
-    await retryOperation(() => 
-      dynamodb.send(new GetCommand({
-        TableName: process.env.GAME_DATA_TABLE,
-        Key: { userId }
-      }))
-    ).then(async (result) => {
-      if (result.Item) {
-        result.Item.lastActivity = new Date().toISOString();
-        result.Item.updatedAt = new Date().toISOString();
-        await retryOperation(() => 
-          dynamodb.send(new PutCommand({
-            TableName: process.env.GAME_DATA_TABLE,
-            Item: result.Item
-          }))
-        );
-      }
-    });
-    
-    // Add to real matchmaking queue
-    const { skillLevel = 0, difficulty = 'Medium' } = queueData;
-    const username = userProfile.username || userProfile.name || 'Unknown';
-    
-    const queueItem = {
-      userId,
-      username,
-      skillLevel,
-      difficulty,
-      joinedAt: new Date().toISOString(),
-      ttl: Math.floor(Date.now() / 1000) + 300 // 5 minutes TTL
-    };
-
-    await retryOperation(() => 
-      dynamodb.send(new PutCommand({
-        TableName: process.env.MATCHMAKING_TABLE,
-        Item: queueItem
-      }))
-    );
-
-    console.log('Player joined real matchmaking queue:', { userId, username, skillLevel, difficulty });
-    
-    // Try to find immediate match after adding to queue
-    const match = await findMatchForPlayer(userId, username, skillLevel, difficulty);
-    
-    if (match) {
-      console.log('Match found immediately:', { userId, matchUserId: match.userId });
-      
-      // Remove both players from queue
-      await Promise.all([
-        dynamodb.send(new DeleteCommand({
-          TableName: process.env.MATCHMAKING_TABLE,
-          Key: { userId }
-        })),
-        dynamodb.send(new DeleteCommand({
-          TableName: process.env.MATCHMAKING_TABLE,
-          Key: { userId: match.userId }
-        }))
-      ]);
-
-      // Notify match found via WebSocket
-      try {
-        await notifyMatchFound(userId, match);
-        await notifyMatchFound(match.userId, { userId, username, skillLevel });
-        console.log('WebSocket notifications sent to both players');
-      } catch (notifyError) {
-        console.warn('Failed to send match notifications:', notifyError);
-      }
-
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify({ 
-          success: true, 
-          matchFound: true,
-          opponent: {
-            username: match.username,
-            skillLevel: match.skillLevel
-          },
-          estimatedWait: 0 
-        })
-      };
-    }
-    
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({ success: true, estimatedWait: 30 })
-    };
-  } catch (error) {
-    console.error('Join queue error:', error);
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Failed to join queue' })
-    };
-  }
-}
-
-async function leaveMatchmakingQueue(userId) {
-  try {
-    await retryOperation(() => 
-      dynamodb.send(new DeleteCommand({
-        TableName: process.env.MATCHMAKING_TABLE,
-        Key: { userId }
-      }))
-    );
-
-    console.log('Player left real matchmaking queue:', userId);
-    
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({ success: true })
-    };
-  } catch (error) {
-    console.error('Leave queue error:', error);
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Failed to leave queue' })
-    };
-  }
-}
-
-// Helper function for matchmaking
-async function findMatchForPlayer(userId, username, skillLevel, difficulty) {
-  try {
-    console.log('Looking for match for player:', { userId, username, skillLevel, difficulty });
-    
-    // Get all players in queue for the same difficulty
     const result = await retryOperation(() => 
       dynamodb.send(new ScanCommand({
-        TableName: process.env.MATCHMAKING_TABLE,
-        FilterExpression: 'difficulty = :difficulty AND userId <> :userId',
-        ExpressionAttributeValues: {
-          ':difficulty': difficulty,
-          ':userId': userId
-        }
+        TableName: process.env.GAME_DATA_TABLE
       }))
     );
 
-    const availablePlayers = result.Items || [];
-    console.log('Available players found:', availablePlayers.length, availablePlayers.map(p => ({ userId: p.userId, username: p.username })));
-    
-    if (availablePlayers.length === 0) {
-      console.log('No available players found');
-      return null;
-    }
-
-    // Find skill-matched opponent (within 200 points)
-    const skillMatched = availablePlayers.find(player => 
-      Math.abs(player.skillLevel - skillLevel) <= 200
-    );
-
-    const match = skillMatched || availablePlayers[0];
-    console.log('Match selected:', { matchUserId: match.userId, matchUsername: match.username });
-    
-    return match;
-
-  } catch (error) {
-    console.error('Find match error:', error);
-    return null;
-  }
-}
-
-
-// WebSocket notification function
-async function notifyMatchFound(userId, opponent) {
-  try {
-    const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require('@aws-sdk/client-apigatewaymanagementapi');
-    
-    // Get user's WebSocket connections
-    const connections = await retryOperation(() => 
-      dynamodb.send(new ScanCommand({
-        TableName: process.env.CONNECTIONS_TABLE,
-        FilterExpression: 'userId = :userId',
-        ExpressionAttributeValues: { ':userId': userId }
-      }))
-    );
-
-    if (!connections.Items || connections.Items.length === 0) {
-      console.log('No WebSocket connection found for user:', userId);
-      return;
-    }
-
-    const apiGateway = new ApiGatewayManagementApiClient({
-      endpoint: process.env.WEBSOCKET_ENDPOINT
-    });
-
-    // Send match notification to all user connections
-    await Promise.all(connections.Items.map(async (connection) => {
-      try {
-        await apiGateway.send(new PostToConnectionCommand({
-          ConnectionId: connection.connectionId,
-          Data: JSON.stringify({
-            type: 'match_found',
-            opponent: {
-              username: opponent.username,
-              skillLevel: opponent.skillLevel,
-              highScore: opponent.skillLevel
-            }
-          })
-        }));
-        console.log('Match notification sent to:', userId);
-      } catch (err) {
-        if (err.statusCode === 410) {
-          // Connection is stale, remove it
-          await retryOperation(() => 
-            dynamodb.send(new DeleteCommand({
-              TableName: process.env.CONNECTIONS_TABLE,
-              Key: { connectionId: connection.connectionId }
-            }))
-          );
+    const onlinePlayers = result.Items
+      .filter(item => {
+        // Exclude current user
+        if (item.userId === currentUserId) return false;
+        
+        // Check if player is online (active within last 3 minutes)
+        const lastActivity = item.lastActivity || item.updatedAt;
+        if (!lastActivity) return false;
+        
+        const isOnline = (Date.now() - new Date(lastActivity).getTime()) < 180000; // 3 minutes
+        return isOnline;
+      })
+      .map(item => {
+        let displayName = 'Anonymous';
+        
+        if (item.username) {
+          displayName = item.username;
+        } else if (item.profile?.username && !item.profile.username.startsWith('Google_')) {
+          displayName = item.profile.username;
+        } else if (item.userId) {
+          const uid = item.userId.replace(/-/g, '').substring(0, 8).toUpperCase();
+          displayName = `UID_${uid}`;
         }
-        console.error('Failed to send match notification:', err);
-      }
-    }));
+        
+        return {
+          userId: item.userId,
+          username: displayName,
+          picture: item.profile?.picture,
+          highScore: item.stats?.highScore || 0,
+          level: item.stats?.level || 1,
+          gamesPlayed: item.stats?.gamesPlayed || 0,
+          winRate: item.stats?.gamesPlayed > 0 ? 
+            Math.round((item.stats?.correctAnswers / (item.stats?.correctAnswers + item.stats?.incorrectAnswers)) * 100) || 0 : 0,
+          lastActive: lastActivity,
+          skillLevel: item.stats?.highScore || 0
+        };
+      })
+      .filter(player => player.username !== 'Anonymous')
+      .sort((a, b) => b.highScore - a.highScore)
+      .slice(0, 20); // Show top 20 online players
 
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        onlinePlayers,
+        totalOnline: onlinePlayers.length
+      })
+    };
   } catch (error) {
-    console.error('Notify match found error:', error);
+    console.error('Get online players error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to get online players' })
+    };
   }
 }
