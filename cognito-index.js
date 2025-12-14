@@ -319,6 +319,29 @@ exports.handler = async (event) => {
       return await getMyChallenges(userId);
     }
 
+    if (path === '/challenge-status' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await getChallengeStatus(userId, requestData.challengeId);
+    }
+
     if (path === '/accept-challenge' && httpMethod === 'POST') {
       if (!body) {
         return {
@@ -1414,6 +1437,54 @@ async function getVehicleImage(path) {
 
 
 // Quick match function - returns only online players
+async function getChallengeStatus(userId, challengeId) {
+  try {
+    const result = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.CHALLENGE_TABLE,
+        Key: { challengeId }
+      }))
+    );
+    
+    if (!result.Item) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Challenge not found' })
+      };
+    }
+    
+    const challenge = result.Item;
+    
+    // Verify user is the creator
+    if (challenge.creatorId !== userId) {
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Not authorized to check this challenge' })
+      };
+    }
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ 
+        challengeId,
+        status: challenge.status,
+        createdAt: challenge.createdAt,
+        acceptedAt: challenge.acceptedAt || null
+      })
+    };
+  } catch (error) {
+    console.error('Get challenge status error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to get challenge status' })
+    };
+  }
+}
+
 async function getOnlinePlayersForQuickMatch(currentUserId) {
   try {
     const result = await retryOperation(() => 
