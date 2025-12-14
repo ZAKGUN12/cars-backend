@@ -1163,6 +1163,8 @@ async function createChallenge(userId, challengeData, userProfile) {
       targetPlayerName: challengeData.targetPlayerName,
       gameMode: challengeData.gameMode || 'Classic',
       difficulty: challengeData.difficulty || 'Medium',
+      puzzle: challengeData.puzzle || null, // Store the puzzle data
+      performance: challengeData.performance || [], // Store creator's performance
       status: 'pending',
       createdAt: new Date().toISOString(),
       expiresAt: expirationTime.toISOString(),
@@ -1382,7 +1384,9 @@ async function acceptChallenge(userId, challengeId) {
           challengerName: challenge.creatorName,
           gameMode: challenge.gameMode,
           difficulty: challenge.difficulty,
-          level: challenge.difficulty
+          level: challenge.difficulty,
+          puzzle: challenge.puzzle || null,
+          performance: challenge.performance || []
         }
       })
     };
