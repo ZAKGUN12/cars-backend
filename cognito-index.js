@@ -1478,23 +1478,8 @@ async function joinMatchmakingQueue(userId, queueData, userProfile) {
 
       // Notify match found via WebSocket
       try {
-        const { sendNotification } = require('./websocket');
-        await sendNotification(userId, {
-          type: 'match_found',
-          opponent: {
-            username: match.username,
-            skillLevel: match.skillLevel,
-            highScore: match.skillLevel
-          }
-        });
-        await sendNotification(match.userId, {
-          type: 'match_found',
-          opponent: {
-            username,
-            skillLevel,
-            highScore: skillLevel
-          }
-        });
+        await notifyMatchFound(userId, match);
+        await notifyMatchFound(match.userId, { userId, username, skillLevel });
         console.log('WebSocket notifications sent to both players');
       } catch (notifyError) {
         console.warn('Failed to send match notifications:', notifyError);
@@ -1597,3 +1582,60 @@ async function findMatchForPlayer(userId, username, skillLevel, difficulty) {
   }
 }
 
+
+// WebSocket notification function
+async function notifyMatchFound(userId, opponent) {
+  try {
+    const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require('@aws-sdk/client-apigatewaymanagementapi');
+    
+    // Get user's WebSocket connections
+    const connections = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({
+        TableName: process.env.CONNECTIONS_TABLE,
+        FilterExpression: 'userId = :userId',
+        ExpressionAttributeValues: { ':userId': userId }
+      }))
+    );
+
+    if (!connections.Items || connections.Items.length === 0) {
+      console.log('No WebSocket connection found for user:', userId);
+      return;
+    }
+
+    const apiGateway = new ApiGatewayManagementApiClient({
+      endpoint: process.env.WEBSOCKET_ENDPOINT
+    });
+
+    // Send match notification to all user connections
+    await Promise.all(connections.Items.map(async (connection) => {
+      try {
+        await apiGateway.send(new PostToConnectionCommand({
+          ConnectionId: connection.connectionId,
+          Data: JSON.stringify({
+            type: 'match_found',
+            opponent: {
+              username: opponent.username,
+              skillLevel: opponent.skillLevel,
+              highScore: opponent.skillLevel
+            }
+          })
+        }));
+        console.log('Match notification sent to:', userId);
+      } catch (err) {
+        if (err.statusCode === 410) {
+          // Connection is stale, remove it
+          await retryOperation(() => 
+            dynamodb.send(new DeleteCommand({
+              TableName: process.env.CONNECTIONS_TABLE,
+              Key: { connectionId: connection.connectionId }
+            }))
+          );
+        }
+        console.error('Failed to send match notification:', err);
+      }
+    }));
+
+  } catch (error) {
+    console.error('Notify match found error:', error);
+  }
+}
