@@ -1165,6 +1165,7 @@ async function createChallenge(userId, challengeData, userProfile) {
       difficulty: challengeData.difficulty || 'Medium',
       puzzle: challengeData.puzzle || null, // Store the puzzle data
       performance: challengeData.performance || [], // Store creator's performance
+      startTime: challengeData.startTime || null, // Store the synchronized start time
       status: 'pending',
       createdAt: new Date().toISOString(),
       expiresAt: expirationTime.toISOString(),
@@ -1242,10 +1243,18 @@ async function getChallenge(challengeId) {
       };
     }
     
+    const challenge = result.Item;
+    
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify(result.Item)
+      body: JSON.stringify({
+        ...challenge,
+        // Ensure all required fields are present
+        puzzle: challenge.puzzle || null,
+        performance: challenge.performance || [],
+        startTime: challenge.startTime || null
+      })
     };
   } catch (error) {
     console.error('Get challenge error:', error);
@@ -1359,19 +1368,25 @@ async function acceptChallenge(userId, challengeId) {
       };
     }
     
-    // Update challenge status
+    // Set synchronized start time (5 seconds from now)
+    const startTime = new Date(Date.now() + 5000).toISOString();
+    
+    // Update challenge status with start time
+    const updatedChallenge = {
+      ...challenge,
+      status: 'accepted',
+      acceptedAt: new Date().toISOString(),
+      startTime: startTime
+    };
+    
     await retryOperation(() => 
       dynamodb.send(new PutCommand({
         TableName: process.env.CHALLENGE_TABLE,
-        Item: {
-          ...challenge,
-          status: 'accepted',
-          acceptedAt: new Date().toISOString()
-        }
+        Item: updatedChallenge
       }))
     );
     
-    console.log('Challenge accepted successfully:', challengeId);
+    console.log('Challenge accepted successfully:', challengeId, 'with start time:', startTime);
     
     // Return challenge data for starting the game
     return {
@@ -1386,7 +1401,8 @@ async function acceptChallenge(userId, challengeId) {
           difficulty: challenge.difficulty,
           level: challenge.difficulty,
           puzzle: challenge.puzzle || null,
-          performance: challenge.performance || []
+          performance: challenge.performance || [],
+          startTime: startTime
         }
       })
     };
