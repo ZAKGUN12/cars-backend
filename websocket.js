@@ -6,18 +6,30 @@ const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'eu-west-1
 const dynamodb = DynamoDBDocumentClient.from(client);
 
 exports.handler = async (event) => {
-  console.log('WebSocket event:', JSON.stringify(event, null, 2));
-  
-  const { connectionId, routeKey } = event.requestContext;
+   const { connectionId, routeKey } = event.requestContext;
   const userId = event.queryStringParameters?.userId;
 
   try {
     if (routeKey === '$connect') {
-      console.log('WebSocket connect:', { connectionId, userId });
-      
       if (!userId) {
-        console.error('Missing userId in connect');
         return { statusCode: 400, body: 'Missing userId' };
+      }
+      
+      // Clean up old connections for this user
+      const oldConnections = await dynamodb.send(new QueryCommand({
+        TableName: process.env.CONNECTIONS_TABLE,
+        IndexName: 'UserIdIndex',
+        KeyConditionExpression: 'userId = :userId',
+        ExpressionAttributeValues: { ':userId': userId }
+      }));
+      
+      if (oldConnections.Items && oldConnections.Items.length > 0) {
+        await Promise.all(oldConnections.Items.map(item => 
+          dynamodb.send(new DeleteCommand({
+            TableName: process.env.CONNECTIONS_TABLE,
+            Key: { connectionId: item.connectionId }
+          }))
+        ));
       }
       
       await dynamodb.send(new PutCommand({
@@ -26,23 +38,19 @@ exports.handler = async (event) => {
           connectionId,
           userId,
           connectedAt: new Date().toISOString(),
-          ttl: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+          ttl: Math.floor(Date.now() / 1000) + 86400
         }
       }));
       
-      console.log('WebSocket connection stored');
       return { statusCode: 200, body: 'Connected' };
     }
     
     if (routeKey === '$disconnect') {
-      console.log('WebSocket disconnect:', { connectionId });
-      
       await dynamodb.send(new DeleteCommand({
         TableName: process.env.CONNECTIONS_TABLE,
         Key: { connectionId }
       }));
       
-      console.log('WebSocket connection removed');
       return { statusCode: 200, body: 'Disconnected' };
     }
     

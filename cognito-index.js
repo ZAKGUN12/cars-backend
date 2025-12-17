@@ -61,6 +61,11 @@ const corsHeaders = {
   'Content-Type': 'application/json'
 };
 
+// Simple in-memory cache for leaderboard
+let leaderboardCache = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 60000; // 1 minute
+
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
 
@@ -831,9 +836,8 @@ async function updateGameData(userId, gameData, userProfile) {
       currentData.stats.level = Math.max(1, Math.floor(newLevel));
       currentData.stats.gears = Math.max(0, Math.floor(newGears));
       
-      // Handle journey progress
+      // Handle journey progress with idempotent updates
       if (mode === 'Journey' && journeyData) {
-        console.log('Processing journey data:', JSON.stringify(journeyData));
         try {
           const { levelId, stars, completed, score: journeyScore } = journeyData;
           
@@ -845,28 +849,16 @@ async function updateGameData(userId, gameData, userProfile) {
           
           const existing = currentData.stats.journeyProgress[levelId];
           
-          console.log('Journey progress update:', {
-            levelId,
-            stars,
-            completed,
-            journeyScore,
-            existing
-          });
-          
-          // Always update completion status if level is completed for the first time
-          // Or if better score is achieved
+          // Idempotent update: only update if better or new
           if (!existing || existing.score < journeyScore || (!existing.completed && completed)) {
             currentData.stats.journeyProgress[levelId] = {
               stars: Math.max(stars, existing?.stars || 0),
               score: Math.max(journeyScore, existing?.score || 0),
               completed: completed || (existing?.completed || false)
             };
-            console.log('Journey progress updated:', currentData.stats.journeyProgress[levelId]);
           }
         } catch (journeyError) {
           console.error('Journey data processing error:', journeyError);
-          // Don't throw the error, just log it and continue with the rest of the update
-          console.warn('Continuing with game stats update despite journey error');
         }
       }
       
@@ -892,6 +884,11 @@ async function updateGameData(userId, gameData, userProfile) {
         Item: currentData
       }))
     );
+    
+    // Invalidate leaderboard cache on score/username update
+    if (score > 0 || mode === 'Journey' || mode === 'profile_update') {
+      leaderboardCache = null;
+    }
 
     return {
       statusCode: 200,
@@ -910,6 +907,16 @@ async function updateGameData(userId, gameData, userProfile) {
 
 async function getLeaderboard() {
   try {
+    // Check cache first
+    const now = Date.now();
+    if (leaderboardCache && (now - cacheTimestamp) < CACHE_TTL) {
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'X-Cache': 'HIT' },
+        body: JSON.stringify(leaderboardCache)
+      };
+    }
+
     const result = await retryOperation(() => 
       dynamodb.send(new ScanCommand({
         TableName: process.env.GAME_DATA_TABLE
@@ -954,14 +961,20 @@ async function getLeaderboard() {
         ...user
       }));
 
+    const response = {
+      leaderboard: players.slice(0, 10),
+      rivals: players,
+      totalPlayers: result.Items.length
+    };
+    
+    // Update cache
+    leaderboardCache = response;
+    cacheTimestamp = now;
+    
     return {
       statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        leaderboard: players.slice(0, 10), // Top 10 for leaderboard
-        rivals: players, // All 50 for rival selection
-        totalPlayers: result.Items.length
-      })
+      headers: { ...corsHeaders, 'X-Cache': 'MISS' },
+      body: JSON.stringify(response)
     };
   } catch (error) {
     console.error('Get leaderboard error:', error);
