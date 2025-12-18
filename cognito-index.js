@@ -1176,7 +1176,7 @@ async function createChallenge(userId, challengeData, userProfile) {
       targetPlayerName: challengeData.targetPlayerName,
       gameMode: challengeData.gameMode || 'Classic',
       difficulty: challengeData.difficulty || 'Medium',
-      puzzle: challengeData.puzzle || null, // Store the puzzle data
+      puzzle: challengeData.puzzle, // Store the puzzle data
       performance: challengeData.performance || [], // Store creator's performance
       startTime: challengeData.startTime || null, // Store the synchronized start time
       status: 'pending',
