@@ -1197,7 +1197,9 @@ async function createChallenge(userId, challengeData, userProfile) {
       from: challengerName,
       to: challengeData.targetPlayerName,
       creatorId: userId,
-      targetId: challengeData.targetPlayerId
+      targetId: challengeData.targetPlayerId,
+      hasPuzzle: !!challengeData.puzzle,
+      puzzleKeys: challengeData.puzzle ? Object.keys(challengeData.puzzle) : null
     });
     
     // Trigger real-time WebSocket notification
