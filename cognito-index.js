@@ -1400,6 +1400,11 @@ async function acceptChallenge(userId, challengeId) {
     );
     
     console.log('Challenge accepted successfully:', challengeId, 'with start time:', startTime);
+    console.log('Challenge puzzle data:', {
+      hasPuzzle: !!challenge.puzzle,
+      puzzleKeys: challenge.puzzle ? Object.keys(challenge.puzzle) : null,
+      puzzle: challenge.puzzle
+    });
     
     // Return challenge data for starting the game
     return {
