@@ -1412,8 +1412,8 @@ async function acceptChallenge(userId, challengeId) {
           challengerName: challenge.creatorName,
           gameMode: challenge.gameMode,
           difficulty: challenge.difficulty,
-          level: challenge.difficulty,
-          puzzle: challenge.puzzle || null,
+          level: challenge.difficulty, // Map difficulty to level for frontend compatibility
+          puzzle: challenge.puzzle,
           performance: challenge.performance || [],
           startTime: startTime
         }
