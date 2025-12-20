@@ -1,9 +1,26 @@
 {
   "name": "vehicle-guesser-backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "AWS Lambda serverless backend for Vehicle Guesser",
+  "main": "cognito-index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "echo \"Linting not configured\"",
+    "package": "zip -r lambda-function.zip . -x '*.git*' 'node_modules/.cache/*' '*.zip'",
+    "deploy:local": "npm run package && aws lambda update-function-code --function-name vehicle-guesser-api --zip-file fileb://lambda-function.zip"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZAKGUN12/cars-backend.git"
+  },
+  "keywords": ["aws", "lambda", "serverless", "vehicle", "game"],
+  "author": "Vehicle Guesser Team",
+  "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
