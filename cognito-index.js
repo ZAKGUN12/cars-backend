@@ -60,14 +60,38 @@ const VEHICLE_DATABASE = {
     {
       id: 'hard_001',
       vehicle: { brand: 'Porsche', model: '911 GT3', year: 2020 },
-      imageKey: 'images/vehicles/porsche-911gt3-2020-exhaust.jpg',
-      imagePart: 'exhaust',
+      imageKey: 'images/vehicles/lexus-es350-2022-headlight.jpeg',
+      imagePart: 'headlight',
       brandOptions: ['Porsche', 'Ferrari', 'Lamborghini', 'McLaren'],
       modelOptions: ['911 GT3', '911 Turbo', 'Cayman GT4', 'Boxster'],
       yearOptions: [2020, 2019, 2018, 2017],
       level: 'Hard',
       difficulty: 9,
       tags: ['sports', 'exotic', 'track']
+    },
+    {
+      id: 'hard_002',
+      vehicle: { brand: 'Ferrari', model: 'F8 Tributo', year: 2021 },
+      imageKey: 'images/vehicles/toyota-camry-2022-headlight.jpeg',
+      imagePart: 'headlight',
+      brandOptions: ['Ferrari', 'Lamborghini', 'McLaren', 'Porsche'],
+      modelOptions: ['F8 Tributo', '488 GTB', 'Roma', 'Portofino'],
+      yearOptions: [2021, 2020, 2019, 2022],
+      level: 'Hard',
+      difficulty: 10,
+      tags: ['sports', 'exotic', 'supercar']
+    },
+    {
+      id: 'hard_003',
+      vehicle: { brand: 'Lamborghini', model: 'Huracan', year: 2020 },
+      imageKey: 'images/vehicles/honda-civic-2023-grille.jpg',
+      imagePart: 'grille',
+      brandOptions: ['Lamborghini', 'Ferrari', 'McLaren', 'Porsche'],
+      modelOptions: ['Huracan', 'Aventador', 'Urus', 'Gallardo'],
+      yearOptions: [2020, 2019, 2021, 2018],
+      level: 'Hard',
+      difficulty: 9,
+      tags: ['sports', 'exotic', 'supercar']
     }
   ]
 };
