@@ -722,6 +722,7 @@ async function getGameData(userId, userProfile) {
         highScore: 0,
         enduranceHighScore: 0,
         gamesPlayed: 0,
+        gamesWon: 0,
         totalPoints: 0,
         difficultyPlays: { Easy: 0, Medium: 0, Hard: 0 },
         gears: 20,
@@ -794,6 +795,7 @@ async function getGameData(userId, userProfile) {
     if (!gameData.stats.gears) gameData.stats.gears = 20;
     if (!gameData.stats.xp) gameData.stats.xp = 0;
     if (!gameData.stats.level) gameData.stats.level = 1;
+    if (!gameData.stats.gamesWon) gameData.stats.gamesWon = 0;
     if (!gameData.stats.powerUps) gameData.stats.powerUps = { timeFreeze: 0, clueGiver: 0 };
     if (!gameData.stats.journeyProgress) gameData.stats.journeyProgress = {};
     if (!gameData.stats.difficultyPlays) gameData.stats.difficultyPlays = { Easy: 0, Medium: 0, Hard: 0 };
@@ -838,6 +840,7 @@ async function updateGameData(userId, gameData, userProfile) {
         highScore: 0,
         enduranceHighScore: 0,
         gamesPlayed: 0,
+        gamesWon: 0,
         totalPoints: 0,
         difficultyPlays: { Easy: 0, Medium: 0, Hard: 0 },
         gears: 20,
@@ -889,6 +892,7 @@ async function updateGameData(userId, gameData, userProfile) {
     currentData.stats.highScore = Number(currentData.stats.highScore) || 0;
     currentData.stats.enduranceHighScore = Number(currentData.stats.enduranceHighScore) || 0;
     currentData.stats.gamesPlayed = Number(currentData.stats.gamesPlayed) || 0;
+    currentData.stats.gamesWon = Number(currentData.stats.gamesWon) || 0;
     currentData.stats.totalPoints = Number(currentData.stats.totalPoints) || 0;
     currentData.stats.correctAnswers = Number(currentData.stats.correctAnswers) || 0;
     currentData.stats.incorrectAnswers = Number(currentData.stats.incorrectAnswers) || 0;
@@ -1036,6 +1040,12 @@ async function updateGameData(userId, gameData, userProfile) {
       currentData.stats.totalPoints = Number(currentData.stats.totalPoints || 0) + Number(score || 0);
       currentData.stats.difficultyPlays[level] = Number(currentData.stats.difficultyPlays[level] || 0) + 1;
       
+      // Determine if game was won (score > 0 and completed)
+      const gameWon = Number(score || 0) > 0;
+      if (gameWon) {
+        currentData.stats.gamesWon = Number(currentData.stats.gamesWon || 0) + 1;
+      }
+      
       if (isEndurance) {
         currentData.stats.enduranceHighScore = Math.max(Number(currentData.stats.enduranceHighScore || 0), Number(score || 0));
       } else {
@@ -1045,7 +1055,8 @@ async function updateGameData(userId, gameData, userProfile) {
       currentData.stats.correctAnswers = Number(currentData.stats.correctAnswers || 0) + Number(correctCount || 0);
       currentData.stats.incorrectAnswers = Number(currentData.stats.incorrectAnswers || 0) + Number(mistakes || 0);
       
-      const isPerfectGame = !isEndurance && mistakes === 0;
+      // Perfect game: completed with no mistakes and minimum score
+      const isPerfectGame = !isEndurance && mistakes === 0 && Number(score || 0) >= 50;
       if (isPerfectGame) {
         currentData.stats.perfectRounds += 1;
       }
@@ -1084,7 +1095,7 @@ async function updateGameData(userId, gameData, userProfile) {
           const { levelId, stars, completed, score: journeyScore } = journeyData;
           
           // Validate journey data with strict checks
-          if (!levelId || typeof levelId !== 'string' || levelId.length > 50) {
+          if (!levelId || typeof levelId !== 'string' || !/^level_\d+$/.test(levelId)) {
             throw new Error('Invalid levelId format');
           }
           if (typeof stars !== 'number' || stars < 0 || stars > 3) {
@@ -1093,8 +1104,14 @@ async function updateGameData(userId, gameData, userProfile) {
           if (typeof completed !== 'boolean') {
             throw new Error('Invalid completed value');
           }
-          if (typeof journeyScore !== 'number' || journeyScore < 0 || journeyScore > 1000) {
+          if (typeof journeyScore !== 'number' || journeyScore < 0 || journeyScore > 210) {
             throw new Error('Invalid journey score');
+          }
+          
+          // Validate stars align with score thresholds
+          const expectedStars = journeyScore >= 180 ? 3 : journeyScore >= 120 ? 2 : journeyScore >= 60 ? 1 : 0;
+          if (stars > expectedStars) {
+            throw new Error('Stars do not align with score');
           }
           
           const existing = currentData.stats.journeyProgress[levelId];
@@ -1119,6 +1136,9 @@ async function updateGameData(userId, gameData, userProfile) {
         mode,
         level,
         score: Math.floor(Number(score)), // Ensure integer
+        mistakes: Number(mistakes || 0),
+        won: gameWon,
+        timeSpent: gameData.timeSpent || null,
         timestamp: new Date().toISOString()
       });
       
@@ -1220,7 +1240,7 @@ async function getLeaderboard() {
           level: item.stats.level || 1,
           gamesPlayed: item.stats.gamesPlayed || 0,
           totalPoints: item.stats.totalPoints || 0,
-          winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.correctAnswers / (item.stats.correctAnswers + item.stats.incorrectAnswers)) * 100) || 0 : 0,
+          winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.gamesWon / item.stats.gamesPlayed) * 100) : 0,
           lastActive: item.lastActivity || item.updatedAt || item.createdAt,
           isOnline: (item.lastActivity || item.updatedAt) && (Date.now() - new Date(item.lastActivity || item.updatedAt).getTime()) < 180000 // 3 minutes
         };
@@ -1891,7 +1911,7 @@ async function getOnlinePlayersForQuickMatch(currentUserId) {
           level: item.stats?.level || 1,
           gamesPlayed: item.stats?.gamesPlayed || 0,
           winRate: item.stats?.gamesPlayed > 0 ? 
-            Math.round((item.stats?.correctAnswers / (item.stats?.correctAnswers + item.stats?.incorrectAnswers)) * 100) || 0 : 0,
+            Math.round((item.stats?.gamesWon / item.stats?.gamesPlayed) * 100) : 0,
           lastActive: lastActivity,
           skillLevel: item.stats?.highScore || 0
         };
