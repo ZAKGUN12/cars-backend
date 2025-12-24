@@ -109,6 +109,26 @@ function shuffleArray(array) {
   return shuffled;
 }
 
+// Enhanced data validation
+const validateStats = (stats) => {
+  if (typeof stats.gears !== 'number' || stats.gears < 0 || stats.gears > 10000) {
+    throw new Error('Invalid gears value');
+  }
+  if (typeof stats.level !== 'number' || stats.level < 1 || stats.level > 1000) {
+    throw new Error('Invalid level value');
+  }
+  if (typeof stats.xp !== 'number' || stats.xp < 0 || stats.xp > 500000) {
+    throw new Error('Invalid XP value');
+  }
+  if (typeof stats.highScore !== 'number' || stats.highScore < 0 || stats.highScore > 100000) {
+    throw new Error('Invalid high score');
+  }
+};
+
+const generateSecureId = () => {
+  return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+
 // Rate limiting
 const rateLimits = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
@@ -131,7 +151,7 @@ function checkRateLimit(userId) {
   
   return true; // Request allowed
 }
-const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, DeleteCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 
 const client = new DynamoDBClient({ 
   region: process.env.AWS_REGION || 'eu-west-1',
@@ -1063,10 +1083,18 @@ async function updateGameData(userId, gameData, userProfile) {
         try {
           const { levelId, stars, completed, score: journeyScore } = journeyData;
           
-          // Validate journey data
-          if (!levelId || typeof stars !== 'number' || typeof completed !== 'boolean' || typeof journeyScore !== 'number') {
-            console.error('Invalid journey data:', journeyData);
-            throw new Error('Invalid journey data format');
+          // Validate journey data with strict checks
+          if (!levelId || typeof levelId !== 'string' || levelId.length > 50) {
+            throw new Error('Invalid levelId format');
+          }
+          if (typeof stars !== 'number' || stars < 0 || stars > 3) {
+            throw new Error('Invalid stars value');
+          }
+          if (typeof completed !== 'boolean') {
+            throw new Error('Invalid completed value');
+          }
+          if (typeof journeyScore !== 'number' || journeyScore < 0 || journeyScore > 1000) {
+            throw new Error('Invalid journey score');
           }
           
           const existing = currentData.stats.journeyProgress[levelId];
@@ -1084,27 +1112,49 @@ async function updateGameData(userId, gameData, userProfile) {
         }
       }
       
-      // Add to game history
+      // Add to game history with secure ID
       currentData.stats.gameHistory.unshift({
-        id: Date.now().toString(),
+        id: generateSecureId(),
         date: new Date().toLocaleDateString(),
         mode,
         level,
-        score,
+        score: Math.floor(Number(score)), // Ensure integer
         timestamp: new Date().toISOString()
       });
       
       // Keep only last 10 games
       currentData.stats.gameHistory = currentData.stats.gameHistory.slice(0, 10);
     }
+    // Validate stats before saving
+    try {
+      validateStats(currentData.stats);
+    } catch (validationError) {
+      console.error('Stats validation failed:', validationError.message);
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: validationError.message })
+      };
+    }
+    
     currentData.updatedAt = new Date().toISOString();
 
-    // Save updated data with retry
-    await retryOperation(() => 
-      dynamodb.send(new PutCommand({
-        TableName: process.env.GAME_DATA_TABLE,
-        Item: currentData
-      }))
+    // Use atomic update instead of full item replacement
+    const updateParams = {
+      TableName: process.env.GAME_DATA_TABLE,
+      Key: { userId },
+      UpdateExpression: 'SET stats = :stats, updatedAt = :updatedAt',
+      ExpressionAttributeValues: {
+        ':stats': currentData.stats,
+        ':updatedAt': currentData.updatedAt
+      },
+      ConditionExpression: 'attribute_exists(userId)', // Ensure record exists
+      ReturnValues: 'ALL_NEW'
+    };
+
+    // Save updated data with atomic operation
+    const updateResult = await retryOperation(() => 
+      dynamodb.send(new UpdateCommand(updateParams))
     );
     
     // Invalidate leaderboard cache on score/username update
@@ -1115,7 +1165,7 @@ async function updateGameData(userId, gameData, userProfile) {
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify(currentData)
+      body: JSON.stringify(updateResult.Attributes)
     };
   } catch (error) {
     console.error('Update game data error:', error);
