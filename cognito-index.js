@@ -1,6 +1,90 @@
 // Updated: 2024-01-15
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 
+// S3 Configuration
+const S3_CONFIG = {
+  BUCKET_NAME: 'vehicle-guesser-1764962592',
+  REGION: 'eu-west-1',
+  BASE_URL: 'https://vehicle-guesser-1764962592.s3.eu-west-1.amazonaws.com',
+  PATHS: {
+    VEHICLES: 'images/vehicles',
+    BRANDS: 'images/brands',
+    ICONS: 'images/icons',
+    THUMBNAILS: 'images/thumbnails'
+  }
+};
+
+// Vehicle database - organized by difficulty
+const VEHICLE_DATABASE = {
+  easy: [
+    {
+      id: 'easy_001',
+      vehicle: { brand: 'Toyota', model: 'Camry', year: 2022 },
+      imageKey: 'images/vehicles/toyota-camry-2022-headlight.jpeg',
+      imagePart: 'headlight',
+      brandOptions: ['Toyota', 'Honda', 'Ford', 'Chevrolet'],
+      modelOptions: ['Camry', 'Corolla', 'Prius', 'Highlander'],
+      yearOptions: [2022, 2019, 2015, 2010],
+      level: 'Easy',
+      difficulty: 2,
+      tags: ['sedan', 'mainstream']
+    },
+    {
+      id: 'easy_002',
+      vehicle: { brand: 'Honda', model: 'Civic', year: 2023 },
+      imageKey: 'images/vehicles/honda-civic-2023-grille.jpg',
+      imagePart: 'grille',
+      brandOptions: ['Honda', 'Toyota', 'Nissan', 'Hyundai'],
+      modelOptions: ['Civic', 'Accord', 'CR-V', 'Pilot'],
+      yearOptions: [2023, 2020, 2017, 2014],
+      level: 'Easy',
+      difficulty: 1,
+      tags: ['sedan', 'compact']
+    }
+  ],
+  medium: [
+    {
+      id: 'medium_001',
+      vehicle: { brand: 'BMW', model: 'X5', year: 2020 },
+      imageKey: 'images/vehicles/bmw-x5-2020-badge.jpg',
+      imagePart: 'badge',
+      brandOptions: ['BMW', 'Audi', 'Mercedes-Benz', 'Lexus'],
+      modelOptions: ['X5', 'X3', '3 Series', '5 Series'],
+      yearOptions: [2020, 2019, 2021, 2018],
+      level: 'Medium',
+      difficulty: 5,
+      tags: ['luxury', 'suv']
+    }
+  ],
+  hard: [
+    {
+      id: 'hard_001',
+      vehicle: { brand: 'Porsche', model: '911 GT3', year: 2020 },
+      imageKey: 'images/vehicles/porsche-911gt3-2020-exhaust.jpg',
+      imagePart: 'exhaust',
+      brandOptions: ['Porsche', 'Ferrari', 'Lamborghini', 'McLaren'],
+      modelOptions: ['911 GT3', '911 Turbo', 'Cayman GT4', 'Boxster'],
+      yearOptions: [2020, 2019, 2018, 2017],
+      level: 'Hard',
+      difficulty: 9,
+      tags: ['sports', 'exotic', 'track']
+    }
+  ]
+};
+
+// Blacklisted images (broken/missing)
+const brokenImages = new Set();
+
+// Shuffle array utility
+function shuffleArray(array) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 // Rate limiting
 const rateLimits = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
@@ -413,6 +497,65 @@ exports.handler = async (event) => {
 
 `
       };
+    }
+
+    // Vehicle API endpoints
+    if (path === '/vehicles' && httpMethod === 'GET') {
+      const level = event.queryStringParameters?.level;
+      if (!level) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Level parameter is required' })
+        };
+      }
+      return await getVehiclesByLevel(level);
+    }
+    
+    if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await generateVehiclePuzzle(requestData.level);
+    }
+    
+    if (path === '/vehicles/report-broken' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await reportBrokenImage(requestData.imageUrl);
     }
 
     if (path.startsWith('/images/') && httpMethod === 'GET') {
@@ -1642,6 +1785,103 @@ async function getOnlinePlayersForQuickMatch(currentUserId) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to get online players' })
+    };
+  }
+}
+
+// Vehicle API functions
+async function getVehiclesByLevel(level) {
+  try {
+    const levelKey = level.toLowerCase();
+    const vehicles = VEHICLE_DATABASE[levelKey] || [];
+    
+    // Filter out broken images
+    const availableVehicles = vehicles.filter(v => !brokenImages.has(v.imageKey));
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        vehicles: availableVehicles,
+        total: availableVehicles.length,
+        level: level,
+        lastUpdated: new Date().toISOString()
+      })
+    };
+  } catch (error) {
+    console.error('Get vehicles by level error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to get vehicles' })
+    };
+  }
+}
+
+async function generateVehiclePuzzle(level) {
+  try {
+    const levelKey = level.toLowerCase();
+    const vehicles = VEHICLE_DATABASE[levelKey] || [];
+    const availableVehicles = vehicles.filter(v => !brokenImages.has(v.imageKey));
+    
+    if (!availableVehicles.length) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: `No vehicles available for level: ${level}` })
+      };
+    }
+    
+    // Select random vehicle
+    const randomVehicle = availableVehicles[Math.floor(Math.random() * availableVehicles.length)];
+    
+    // Build full image URL
+    const imageUrl = `${S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
+    
+    const puzzle = {
+      id: randomVehicle.id,
+      vehicle: randomVehicle.vehicle,
+      imageUrl: imageUrl,
+      brandOptions: shuffleArray([...randomVehicle.brandOptions]),
+      modelOptions: shuffleArray([...randomVehicle.modelOptions]),
+      yearOptions: shuffleArray([...randomVehicle.yearOptions]),
+      difficulty: randomVehicle.difficulty,
+      tags: randomVehicle.tags
+    };
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify(puzzle)
+    };
+  } catch (error) {
+    console.error('Generate vehicle puzzle error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to generate puzzle' })
+    };
+  }
+}
+
+async function reportBrokenImage(imageUrl) {
+  try {
+    const imageKey = imageUrl.replace(S3_CONFIG.BASE_URL + '/', '');
+    brokenImages.add(imageKey);
+    
+    console.log(`Marked image as broken: ${imageKey}`);
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, message: 'Image reported as broken' })
+    };
+  } catch (error) {
+    console.error('Report broken image error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to report broken image' })
     };
   }
 }
