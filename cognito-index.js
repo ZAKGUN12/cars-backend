@@ -543,7 +543,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // Vehicle API endpoints
+    // Vehicle API endpoints - make public for better performance
     if (path === '/vehicles' && httpMethod === 'GET') {
       const level = event.queryStringParameters?.level;
       if (!level) {
