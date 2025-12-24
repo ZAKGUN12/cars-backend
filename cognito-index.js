@@ -892,8 +892,39 @@ async function updateGameData(userId, gameData, userProfile) {
     const MIN_TIME_PER_ROUND = 3; // Minimum 3 seconds per round
     const MAX_PERFECT_STREAK = 10; // Maximum consecutive perfect games
     
-    // Basic score validation
-    if (score > MAX_POINTS_PER_GAME || score < 0) {
+    // SERVER-SIDE SCORE CALCULATION (ANTI-CHEAT)
+    let serverCalculatedScore = 0;
+    let serverCalculatedGears = 0;
+    let serverCalculatedXP = 0;
+    
+    if (mode !== 'bonus' && mode !== 'profile_update' && mode !== 'hint' && mode !== 'powerup' && mode !== 'purchase') {
+      // Recalculate score on server to prevent manipulation
+      const basePoints = isEndurance ? 10 : 25;
+      const maxTimeBonus = 10 * 2; // Max 10 seconds * 2 multiplier
+      const maxComboBonus = 5 * 5; // Max 5 combo * 5 multiplier
+      const perfectBonus = (mistakes === 0 && !isEndurance) ? 30 : 0;
+      
+      serverCalculatedScore = basePoints + maxTimeBonus + maxComboBonus + perfectBonus;
+      
+      // Validate against client score (allow 10% variance for network delays)
+      const variance = Math.abs(score - serverCalculatedScore) / serverCalculatedScore;
+      if (variance > 0.1) {
+        console.warn(`Score mismatch: client=${score}, server=${serverCalculatedScore}, variance=${variance}`);
+        // Use server calculated score
+        score = serverCalculatedScore;
+      }
+      
+      // Server-side gear calculation
+      serverCalculatedGears = Math.floor(serverCalculatedScore / 50) + (mistakes === 0 ? 10 : 0);
+      
+      // Server-side XP calculation
+      const baseXp = Math.floor(serverCalculatedScore / 10);
+      serverCalculatedXP = baseXp + (mistakes === 0 ? 25 : 0);
+    }
+    
+    // Basic score validation with tighter limits
+    const actualMaxScore = mode === 'Journey' ? 210 * 10 : 210 * 5;
+    if (score > actualMaxScore || score < 0) {
       console.warn(`Invalid score detected: ${score} for user ${userId} in mode ${mode}`);
       return {
         statusCode: 400,
@@ -936,19 +967,48 @@ async function updateGameData(userId, gameData, userProfile) {
         currentData.profile.name = profileData.username;
       }
     } else if (mode === 'hint' && hintCost) {
-      // Handle hint usage
-      currentData.stats.gears = Math.max(0, currentData.stats.gears - hintCost);
+      // Handle hint usage with validation
+      const FIXED_HINT_COST = 5; // Server-enforced cost
+      if (hintCost !== FIXED_HINT_COST) {
+        console.warn(`Invalid hint cost: ${hintCost} vs ${FIXED_HINT_COST}`);
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid hint cost' })
+        };
+      }
+      currentData.stats.gears = Math.max(0, currentData.stats.gears - FIXED_HINT_COST);
     } else if (mode === 'powerup' && powerUpType) {
       // Handle powerup usage
       if (currentData.stats.powerUps[powerUpType] > 0) {
         currentData.stats.powerUps[powerUpType] -= 1;
       }
     } else if (mode === 'purchase' && purchaseData) {
-      // Handle powerup purchase
+      // Handle powerup purchase with validation
       const { powerUp, cost } = purchaseData;
-      if (currentData.stats.gears >= cost) {
-        currentData.stats.gears -= cost;
+      
+      // Validate powerup type and cost
+      const validPowerUps = { timeFreeze: 10, clueGiver: 15 }; // Fixed costs
+      const actualCost = validPowerUps[powerUp];
+      
+      if (!actualCost || cost !== actualCost) {
+        console.warn(`Invalid powerup purchase: ${powerUp} cost ${cost} vs ${actualCost}`);
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid purchase data' })
+        };
+      }
+      
+      if (currentData.stats.gears >= actualCost) {
+        currentData.stats.gears -= actualCost;
         currentData.stats.powerUps[powerUp] = (currentData.stats.powerUps[powerUp] || 0) + 1;
+      } else {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Insufficient gears' })
+        };
       }
     } else {
       // Handle game stats with proper number validation
@@ -970,18 +1030,13 @@ async function updateGameData(userId, gameData, userProfile) {
         currentData.stats.perfectRounds += 1;
       }
       
-      // Optimized XP and level progression with realistic values
-      const validScore = Number(score || 0);
-      const baseXp = Math.floor(validScore / 10);
-      const timeBonus = Math.max(0, Math.floor((validScore % 1000) / 100));
-      const xpGained = baseXp + timeBonus + (isPerfectGame ? 25 : 0);
-      
-      const baseGears = Math.floor(validScore / 50);
-      const gearsGained = baseGears + (isPerfectGame ? 10 : 0);
+      // Use server-calculated values for security
+      const validScore = serverCalculatedScore || Number(score || 0);
+      const xpGained = serverCalculatedXP || (Math.floor(validScore / 10) + (mistakes === 0 ? 25 : 0));
+      const gearsGained = serverCalculatedGears || (Math.floor(validScore / 50) + (mistakes === 0 ? 10 : 0));
       
       const XP_PER_LEVEL = 500;
       const GEARS_PER_LEVEL_UP = 25;
-      const PERFECT_BONUS_POINTS = 30;
       
       let newXp = Number(currentData.stats.xp || 0) + Number(xpGained || 0);
       let newLevel = Number(currentData.stats.level || 1);
