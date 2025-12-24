@@ -1168,7 +1168,6 @@ async function updateGameData(userId, gameData, userProfile) {
         ':stats': currentData.stats,
         ':updatedAt': currentData.updatedAt
       },
-      ConditionExpression: 'attribute_exists(userId)', // Ensure record exists
       ReturnValues: 'ALL_NEW'
     };
 
@@ -1189,10 +1188,18 @@ async function updateGameData(userId, gameData, userProfile) {
     };
   } catch (error) {
     console.error('Update game data error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      statusCode: error.statusCode,
+      userId,
+      mode: gameData.mode
+    });
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: 'Failed to update game data' })
+      body: JSON.stringify({ error: 'Failed to update game data', details: error.message })
     };
   }
 }
@@ -1675,8 +1682,8 @@ async function acceptChallenge(userId, challengeId) {
       };
     }
     
-    // Set synchronized start time (5 seconds from now)
-    const startTime = new Date(Date.now() + 5000).toISOString();
+    // Set synchronized start time (10 seconds from now for better sync)
+    const startTime = new Date(Date.now() + 10000).toISOString();
     
     // Update challenge status with start time
     const updatedChallenge = {
