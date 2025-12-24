@@ -218,6 +218,65 @@ exports.handler = async (event) => {
       return await getLeaderboard();
     }
     
+    // Vehicle API endpoints - make public for better performance
+    if (path === '/vehicles' && httpMethod === 'GET') {
+      const level = event.queryStringParameters?.level;
+      if (!level) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Level parameter is required' })
+        };
+      }
+      return await getVehiclesByLevel(level);
+    }
+    
+    if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await generateVehiclePuzzle(requestData.level);
+    }
+    
+    if (path === '/vehicles/report-broken' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await reportBrokenImage(requestData.imageUrl);
+    }
+    
     if (path === '/check-username' && httpMethod === 'POST') {
       if (!body) {
         return {
@@ -541,65 +600,6 @@ exports.handler = async (event) => {
 
 `
       };
-    }
-
-    // Vehicle API endpoints - make public for better performance
-    if (path === '/vehicles' && httpMethod === 'GET') {
-      const level = event.queryStringParameters?.level;
-      if (!level) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Level parameter is required' })
-        };
-      }
-      return await getVehiclesByLevel(level);
-    }
-    
-    if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required' })
-        };
-      }
-      
-      let requestData;
-      try {
-        requestData = JSON.parse(body);
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body' })
-        };
-      }
-      
-      return await generateVehiclePuzzle(requestData.level);
-    }
-    
-    if (path === '/vehicles/report-broken' && httpMethod === 'POST') {
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required' })
-        };
-      }
-      
-      let requestData;
-      try {
-        requestData = JSON.parse(body);
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body' })
-        };
-      }
-      
-      return await reportBrokenImage(requestData.imageUrl);
     }
 
     if (path.startsWith('/images/') && httpMethod === 'GET') {
