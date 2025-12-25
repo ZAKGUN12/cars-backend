@@ -908,7 +908,7 @@ async function updateGameData(userId, gameData, userProfile) {
     if (!currentData.stats.gameHistory) currentData.stats.gameHistory = [];
 
     // Update stats
-    const { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
+    let { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
     
     // Enhanced server-side score validation (anti-cheat)
     const MAX_POINTS_PER_VEHICLE = 210;
