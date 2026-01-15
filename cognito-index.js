@@ -231,37 +231,27 @@ exports.handler = async (event) => {
       return await getVehiclesByLevel(level);
     }
     
-    if (path === '/vehicles/puzzle') {
-      if (httpMethod === 'OPTIONS') {
+    if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
+      if (!body) {
         return {
-          statusCode: 200,
+          statusCode: 400,
           headers: corsHeaders,
-          body: ''
+          body: JSON.stringify({ error: 'Request body is required' })
         };
       }
       
-      if (httpMethod === 'POST') {
-        if (!body) {
-          return {
-            statusCode: 400,
-            headers: corsHeaders,
-            body: JSON.stringify({ error: 'Request body is required' })
-          };
-        }
-        
-        let requestData;
-        try {
-          requestData = JSON.parse(body);
-        } catch (parseError) {
-          return {
-            statusCode: 400,
-            headers: corsHeaders,
-            body: JSON.stringify({ error: 'Invalid JSON in request body' })
-          };
-        }
-        
-        return await generateVehiclePuzzle(requestData.level);
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
       }
+      
+      return await generateVehiclePuzzle(requestData.level);
     }
     
     if (path === '/vehicles/report-broken' && httpMethod === 'POST') {
