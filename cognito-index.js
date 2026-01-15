@@ -1102,9 +1102,10 @@ async function updateGameData(userId, gameData, userProfile) {
     const updateParams = {
       TableName: process.env.GAME_DATA_TABLE,
       Key: { userId },
-      UpdateExpression: 'SET stats = :stats, updatedAt = :updatedAt',
+      UpdateExpression: 'SET stats = :stats, profile = :profile, updatedAt = :updatedAt',
       ExpressionAttributeValues: {
         ':stats': currentData.stats,
+        ':profile': currentData.profile,
         ':updatedAt': currentData.updatedAt
       },
       ReturnValues: 'ALL_NEW'
