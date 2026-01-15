@@ -710,9 +710,19 @@ async function getGameData(userId, userProfile) {
       gameData.profile = { ...gameData.profile, ...userProfile };
       
       // Preserve custom username if it exists and is not a Cognito auto-generated one
-      if (existingUsername && !existingUsername.startsWith('Google_') && !existingUsername.includes('@') && existingUsername !== userProfile.username) {
+      if (existingUsername && 
+          !existingUsername.startsWith('Google_') && 
+          !existingUsername.startsWith('UID_') &&
+          !existingUsername.includes('@') && 
+          existingUsername !== userProfile.username) {
         gameData.profile.username = existingUsername;
         console.log('Preserved custom username:', existingUsername, 'for user:', userId);
+      } else {
+        console.log('User needs username setup:', {
+          userId,
+          existingUsername,
+          userProfileUsername: userProfile.username
+        });
       }
       
       // Ensure authMethod is set for existing users
@@ -1155,22 +1165,25 @@ async function getLeaderboard() {
       .map(item => {
         // Use username from database table
         let displayName = 'Anonymous';
+        let needsUsernameSetup = false;
         
-        if (item.username) {
-          // Use username field from database table (like "zekscaler", "icem")
-          displayName = item.username;
-        } else if (item.profile?.username && !item.profile.username.startsWith('Google_')) {
-          // Fallback to profile username if set
+        if (item.profile?.username && 
+            !item.profile.username.startsWith('Google_') && 
+            !item.profile.username.startsWith('UID_') &&
+            !item.profile.username.includes('@')) {
+          // User has a custom username
           displayName = item.profile.username;
         } else if (item.userId) {
-          // Generate UID from database userId as last resort
+          // Generate UID from database userId as fallback
           const uid = item.userId.replace(/-/g, '').substring(0, 8).toUpperCase();
           displayName = `UID_${uid}`;
+          needsUsernameSetup = true;
         }
         
         return {
           userId: item.userId,
           username: displayName,
+          needsUsernameSetup,
           picture: item.profile?.picture,
           highScore: item.stats.highScore || 0,
           level: item.stats.level || 1,
@@ -1181,7 +1194,7 @@ async function getLeaderboard() {
           isOnline: (item.lastActivity || item.updatedAt) && (Date.now() - new Date(item.lastActivity || item.updatedAt).getTime()) < 180000 // 3 minutes
         };
       })
-      .filter(player => player.username !== 'Anonymous' && player.gamesPlayed >= 0) // Show all players with usernames
+      .filter(player => player.username !== 'Anonymous') // Show all players including those needing username setup
       .sort((a, b) => b.highScore - a.highScore)
       .slice(0, 50) // Show top 50 for rival challenges
       .map((user, index) => ({
