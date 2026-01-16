@@ -41,3 +41,10 @@ samconfig.toml
 # Temporary
 *.tmp
 .cache/
+
+# Build artifacts
+*.zip
+deployment.zip
+function.zip
+lambda-deployment.zip
+lambda-function.zip
