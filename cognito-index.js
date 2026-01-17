@@ -1034,7 +1034,7 @@ async function updateGameData(userId, gameData, userProfile) {
           const { levelId, stars, completed, score: journeyScore } = journeyData;
           
           // Validate journey data with strict checks
-          if (!levelId || typeof levelId !== 'string' || !/^level_\d+$/.test(levelId)) {
+          if (!levelId || typeof levelId !== 'string' || !/^(level_|lvl_)\d+$/.test(levelId)) {
             throw new Error('Invalid levelId format');
           }
           if (typeof stars !== 'number' || stars < 0 || stars > 3) {
