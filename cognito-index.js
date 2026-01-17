@@ -1043,7 +1043,7 @@ async function updateGameData(userId, gameData, userProfile) {
           if (typeof completed !== 'boolean') {
             throw new Error('Invalid completed value');
           }
-          if (typeof journeyScore !== 'number' || journeyScore < 0 || journeyScore > 210) {
+          if (typeof journeyScore !== 'number' || journeyScore < 0 || journeyScore > 2100) {
             throw new Error('Invalid journey score');
           }
           
