@@ -21,9 +21,6 @@ jobs:
     
     steps:
     - uses: actions/checkout@v3
-      with:
-        sparse-checkout: |
-          cars-backend
     
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -31,16 +28,6 @@ jobs:
         node-version: '18'
         cache: 'npm'
         cache-dependency-path: cars-backend/package-lock.json
-    
-    - name: Navigate to Backend
-      run: cd cars-backend && pwd && ls -la
-    
-    - name: Install Dependencies
-      working-directory: cars-backend
-      run: |
-        echo "📦 Installing dependencies..."
-        npm ci --omit=dev
-        echo "✅ Dependencies installed"
     
     - name: Validate Code
       working-directory: cars-backend
@@ -51,6 +38,13 @@ jobs:
         test -f s3Config.js && echo "  ✓ s3Config.js (NEW Phase 1)" || exit 1
         test -f imageMetadataService.js && echo "  ✓ imageMetadataService.js (NEW Phase 1)" || exit 1
         echo "✅ All required files present"
+    
+    - name: Install Dependencies
+      working-directory: cars-backend
+      run: |
+        echo "📦 Installing dependencies..."
+        npm ci --omit=dev
+        echo "✅ Dependencies installed"
   
   # Job 2: Package Lambda
   package:
@@ -59,9 +53,6 @@ jobs:
     
     steps:
     - uses: actions/checkout@v3
-      with:
-        sparse-checkout: |
-          cars-backend
     
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -239,9 +230,6 @@ jobs:
     
     steps:
     - uses: actions/checkout@v3
-      with:
-        sparse-checkout: |
-          cars-backend
     
     - name: Set up Node.js
       uses: actions/setup-node@v3
