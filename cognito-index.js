@@ -1,92 +1,9 @@
 // Updated: 2024-01-15
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 
-// Import centralized S3 configuration (Phase 1 improvement)
-// This replaces the inline S3_CONFIG with a unified config that works across frontend/backend
-const { S3_CONFIG, S3_UrlManager } = require('./s3Config');
+const { S3_CONFIG } = require('./s3Config');
 const imageMetadataService = require('./imageMetadataService');
-
-// Vehicle database - organized by difficulty with new S3 paths
-const VEHICLE_DATABASE = {
-  easy: [
-    {
-      id: 'easy_001',
-      vehicle: { brand: 'Toyota', model: 'Camry', year: 2020 },
-      imageKey: 'images/vehicles/easy/toyota-camry-2020.jpg',
-      imagePart: 'headlight',
-      brandOptions: ['Toyota', 'Honda', 'Ford', 'Chevrolet'],
-      modelOptions: ['Camry', 'Corolla', 'Prius', 'Highlander'],
-      yearOptions: [2020, 2019, 2015, 2010],
-      level: 'Easy',
-      difficulty: 2,
-      tags: ['sedan', 'mainstream']
-    },
-    {
-      id: 'easy_002',
-      vehicle: { brand: 'Honda', model: 'Civic', year: 2019 },
-      imageKey: 'images/vehicles/easy/honda-civic-2019.jpg',
-      imagePart: 'grille',
-      brandOptions: ['Honda', 'Toyota', 'Nissan', 'Hyundai'],
-      modelOptions: ['Civic', 'Accord', 'CR-V', 'Pilot'],
-      yearOptions: [2019, 2020, 2017, 2014],
-      level: 'Easy',
-      difficulty: 1,
-      tags: ['sedan', 'compact']
-    },
-    {
-      id: 'easy_003',
-      vehicle: { brand: 'Ford', model: 'F-150', year: 2023 },
-      imageKey: 'images/vehicles/easy/ford-f150-2023-taillight.jpg',
-      imagePart: 'taillight',
-      brandOptions: ['Ford', 'Chevrolet', 'Ram', 'GMC'],
-      modelOptions: ['F-150', 'Mustang', 'Explorer', 'Escape'],
-      yearOptions: [2023, 2020, 2017, 2014],
-      level: 'Easy',
-      difficulty: 2,
-      tags: ['truck']
-    }
-  ],
-  medium: [
-    {
-      id: 'medium_001',
-      vehicle: { brand: 'BMW', model: 'X5', year: 2020 },
-      imageKey: 'images/vehicles/medium/bmw-x5-2020.jpg',
-      imagePart: 'badge',
-      brandOptions: ['BMW', 'Audi', 'Mercedes-Benz', 'Lexus'],
-      modelOptions: ['X5', 'X3', '3 Series', '5 Series'],
-      yearOptions: [2020, 2019, 2021, 2018],
-      level: 'Medium',
-      difficulty: 5,
-      tags: ['luxury', 'suv']
-    },
-    {
-      id: 'medium_002',
-      vehicle: { brand: 'Mercedes-Benz', model: 'C-Class', year: 2020 },
-      imageKey: 'images/vehicles/medium/mercedes-c-class-2020.jpg',
-      imagePart: 'grille',
-      brandOptions: ['Mercedes-Benz', 'BMW', 'Audi', 'Lexus'],
-      modelOptions: ['C-Class', 'E-Class', 'GLC', 'GLE'],
-      yearOptions: [2020, 2021, 2019, 2018],
-      level: 'Medium',
-      difficulty: 6,
-      tags: ['luxury', 'sedan']
-    }
-  ],
-  hard: [
-    {
-      id: 'hard_001',
-      vehicle: { brand: 'Porsche', model: '911 GT3', year: 2020 },
-      imageKey: 'images/vehicles/hard/porsche-911gt3-2020-exhaust.jpg',
-      imagePart: 'exhaust',
-      brandOptions: ['Porsche', 'Ferrari', 'Lamborghini', 'McLaren'],
-      modelOptions: ['911 GT3', '911 Turbo', 'Cayman GT4', 'Boxster'],
-      yearOptions: [2020, 2019, 2018, 2017],
-      level: 'Hard',
-      difficulty: 9,
-      tags: ['sports', 'exotic', 'track']
-    }
-  ]
-};
+const VEHICLE_DATABASE = require('./expandedVehicleDatabase');
 
 // Blacklisted images (broken/missing)
 const brokenImages = new Set();
