@@ -1,0 +1,267 @@
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { APIGatewayEvent, APIResponse, UserProfile, GameData, UpdateGameDataRequest } from './types';
+import { VEHICLE_DATABASE } from './vehicleDatabase';
+import { S3_CONFIG } from './config';
+
+const client = new DynamoDBClient({ 
+  region: process.env.AWS_REGION || 'eu-west-1',
+  maxAttempts: 3,
+  retryMode: 'adaptive'
+});
+
+const dynamodb = DynamoDBDocumentClient.from(client, {
+  marshallOptions: { removeUndefinedValues: true }
+});
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': 'https://dw78cwmd7ajty.cloudfront.net',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Content-Type': 'application/json'
+};
+
+const rateLimits = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW = 60000;
+const MAX_REQUESTS_PER_MINUTE = 100;
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const userRequests = rateLimits.get(userId) || [];
+  const recentRequests = userRequests.filter(time => now - time < RATE_LIMIT_WINDOW);
+  
+  if (recentRequests.length >= MAX_REQUESTS_PER_MINUTE) return false;
+  
+  recentRequests.push(now);
+  rateLimits.set(userId, recentRequests);
+  return true;
+}
+
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+async function retryOperation<T>(operation: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxRetries) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+    }
+  }
+  throw new Error('Retry failed');
+}
+
+export const handler = async (event: APIGatewayEvent): Promise<APIResponse> => {
+  console.log('Event:', JSON.stringify(event, null, 2));
+
+  try {
+    const { httpMethod, path, body } = event;
+    
+    if (httpMethod === 'OPTIONS') {
+      return { statusCode: 200, headers: CORS_HEADERS, body: '' };
+    }
+
+    if (path === '/leaderboard' && httpMethod === 'GET') {
+      return await getLeaderboard();
+    }
+
+    if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
+      const data = JSON.parse(body || '{}');
+      return await generateVehiclePuzzle(data.level);
+    }
+
+    const claims = event.requestContext?.authorizer?.claims;
+    const userId = claims?.sub;
+    
+    if (!userId) {
+      return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
+
+    if (!checkRateLimit(userId)) {
+      return { statusCode: 429, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Rate limit exceeded' }) };
+    }
+
+    const userProfile: UserProfile = {
+      email: claims?.email || '',
+      username: claims?.['cognito:username'] || '',
+      name: claims?.name || '',
+      picture: claims?.picture,
+      emailVerified: claims?.email_verified === 'true',
+      authMethod: claims?.['cognito:username']?.startsWith('Google_') ? 'google' : 'email'
+    };
+
+    if (path === '/gamedata') {
+      if (httpMethod === 'GET') return await getGameData(userId, userProfile);
+      if (httpMethod === 'POST') {
+        const gameData: UpdateGameDataRequest = JSON.parse(body || '{}');
+        return await updateGameData(userId, gameData, userProfile);
+      }
+    }
+
+    return { statusCode: 404, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Not found' }) };
+
+  } catch (error) {
+    console.error('Lambda error:', error);
+    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Internal server error' }) };
+  }
+};
+
+async function getGameData(userId: string, userProfile: UserProfile): Promise<APIResponse> {
+  try {
+    const result = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Key: { userId }
+      }))
+    );
+
+    const gameData: GameData = result.Item as GameData || {
+      userId,
+      profile: userProfile,
+      stats: {
+        highScore: 0,
+        enduranceHighScore: 0,
+        gamesPlayed: 0,
+        gamesWon: 0,
+        totalPoints: 0,
+        difficultyPlays: { Easy: 0, Medium: 0, Hard: 0 },
+        gears: 20,
+        xp: 0,
+        level: 1,
+        powerUps: { timeFreeze: 0, clueGiver: 0 },
+        correctAnswers: 0,
+        incorrectAnswers: 0,
+        perfectRounds: 0,
+        gameHistory: [],
+        lastBonusDate: '',
+        loginStreak: 0,
+        journeyProgress: {}
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(gameData) };
+  } catch (error) {
+    console.error('Get game data error:', error);
+    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to get game data' }) };
+  }
+}
+
+async function updateGameData(userId: string, gameData: UpdateGameDataRequest, userProfile: UserProfile): Promise<APIResponse> {
+  try {
+    const existing = await retryOperation(() => 
+      dynamodb.send(new GetCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Key: { userId }
+      }))
+    );
+
+    const currentData = existing.Item as GameData || {
+      userId,
+      profile: userProfile,
+      stats: {
+        highScore: 0,
+        enduranceHighScore: 0,
+        gamesPlayed: 0,
+        gamesWon: 0,
+        totalPoints: 0,
+        difficultyPlays: { Easy: 0, Medium: 0, Hard: 0 },
+        gears: 20,
+        xp: 0,
+        level: 1,
+        powerUps: { timeFreeze: 0, clueGiver: 0 },
+        correctAnswers: 0,
+        incorrectAnswers: 0,
+        perfectRounds: 0,
+        gameHistory: [],
+        lastBonusDate: '',
+        loginStreak: 0,
+        journeyProgress: {}
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    currentData.updatedAt = new Date().toISOString();
+
+    const updateResult = await retryOperation(() => 
+      dynamodb.send(new UpdateCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Key: { userId },
+        UpdateExpression: 'SET stats = :stats, profile = :profile, updatedAt = :updatedAt',
+        ExpressionAttributeValues: {
+          ':stats': currentData.stats,
+          ':profile': currentData.profile,
+          ':updatedAt': currentData.updatedAt
+        },
+        ReturnValues: 'ALL_NEW'
+      }))
+    );
+
+    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(updateResult.Attributes) };
+  } catch (error) {
+    console.error('Update game data error:', error);
+    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to update game data' }) };
+  }
+}
+
+async function getLeaderboard(): Promise<APIResponse> {
+  try {
+    const result = await retryOperation(() => 
+      dynamodb.send(new ScanCommand({ TableName: process.env.GAME_DATA_TABLE }))
+    );
+
+    const players = (result.Items as GameData[])
+      .map(item => ({
+        userId: item.userId,
+        username: item.profile?.username || 'Anonymous',
+        highScore: item.stats?.highScore || 0,
+        level: item.stats?.level || 1
+      }))
+      .sort((a, b) => b.highScore - a.highScore)
+      .slice(0, 10);
+
+    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify({ leaderboard: players }) };
+  } catch (error) {
+    console.error('Get leaderboard error:', error);
+    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to get leaderboard' }) };
+  }
+}
+
+async function generateVehiclePuzzle(level: string): Promise<APIResponse> {
+  try {
+    const levelKey = level.toLowerCase() as 'easy' | 'medium' | 'hard';
+    const vehicles = VEHICLE_DATABASE[levelKey] || [];
+    
+    if (!vehicles.length) {
+      return { statusCode: 404, headers: CORS_HEADERS, body: JSON.stringify({ error: 'No vehicles available' }) };
+    }
+    
+    const randomVehicle = vehicles[Math.floor(Math.random() * vehicles.length)];
+    const imageUrl = `${S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
+    
+    const puzzle = {
+      id: randomVehicle.id,
+      vehicle: randomVehicle.vehicle,
+      imageUrl,
+      brandOptions: shuffleArray([...randomVehicle.brandOptions]),
+      modelOptions: shuffleArray([...randomVehicle.modelOptions]),
+      yearOptions: shuffleArray([...randomVehicle.yearOptions]),
+      difficulty: randomVehicle.difficulty,
+      tags: randomVehicle.tags
+    };
+    
+    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(puzzle) };
+  } catch (error) {
+    console.error('Generate puzzle error:', error);
+    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to generate puzzle' }) };
+  }
+}

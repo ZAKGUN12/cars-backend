@@ -2,23 +2,28 @@
   "name": "vehicle-guesser-backend",
   "version": "1.0.0",
   "description": "AWS Lambda serverless backend for Vehicle Guesser",
-  "main": "cognito-index.js",
+  "main": "dist/index.js",
   "scripts": {
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "echo \"Linting not configured\"",
-    "package": "zip -r lambda-function.zip . -x '*.git*' 'node_modules/.cache/*' '*.zip'",
-    "deploy:local": "npm run package && aws lambda update-function-code --function-name vehicle-guesser-api --zip-file fileb://lambda-function.zip"
+    "package": "npm run build && cd dist && zip -r ../lambda-function.zip . && cd .. && zip -r lambda-function.zip node_modules",
+    "deploy": "npm run package && aws lambda update-function-code --function-name vehicle-guesser-api-prod --zip-file fileb://lambda-function.zip --region eu-west-1"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/ZAKGUN12/cars-backend.git"
   },
-  "keywords": ["aws", "lambda", "serverless", "vehicle", "game"],
+  "keywords": ["aws", "lambda", "serverless", "vehicle", "game", "typescript"],
   "author": "Vehicle Guesser Team",
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
   },
   "engines": {
     "node": ">=18.0.0"
