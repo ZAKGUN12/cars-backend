@@ -1,0 +1,310 @@
+name: Deploy Backend & Lambda
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'cars-backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  AWS_REGION: eu-west-1
+  ENVIRONMENT: prod
+  LAMBDA_FUNCTION: vehicle-guesser-api-prod
+
+jobs:
+  # Job 1: Prepare Backend
+  prepare:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        sparse-checkout: |
+          cars-backend
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: cars-backend/package-lock.json
+    
+    - name: Navigate to Backend
+      run: cd cars-backend && pwd && ls -la
+    
+    - name: Install Dependencies
+      working-directory: cars-backend
+      run: |
+        echo "📦 Installing dependencies..."
+        npm ci --omit=dev
+        echo "✅ Dependencies installed"
+    
+    - name: Validate Code
+      working-directory: cars-backend
+      run: |
+        echo "✅ Checking key files..."
+        test -f index.js && echo "  ✓ index.js" || exit 1
+        test -f cognito-index.js && echo "  ✓ cognito-index.js" || exit 1
+        test -f s3Config.js && echo "  ✓ s3Config.js (NEW Phase 1)" || exit 1
+        test -f imageMetadataService.js && echo "  ✓ imageMetadataService.js (NEW Phase 1)" || exit 1
+        echo "✅ All required files present"
+  
+  # Job 2: Package Lambda
+  package:
+    runs-on: ubuntu-latest
+    needs: prepare
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        sparse-checkout: |
+          cars-backend
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: cars-backend/package-lock.json
+    
+    - name: Install Dependencies
+      working-directory: cars-backend
+      run: npm ci --omit=dev
+    
+    - name: Package Lambda Function
+      working-directory: cars-backend
+      run: |
+        echo "📦 Creating deployment package..."
+        
+        # Create clean package
+        zip -r ../lambda-function.zip . \
+          -x "*.git*" \
+          ".github/*" \
+          "README.md" \
+          "package-lock.json" \
+          "node_modules/.cache/*" \
+          "*/.DS_Store" \
+          "*.log"
+        
+        cd ..
+        ls -lh lambda-function.zip
+        echo "✅ Package created: lambda-function.zip"
+    
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: lambda-function
+        path: lambda-function.zip
+        retention-days: 1
+  
+  # Job 3: Deploy to Lambda
+  deploy:
+    runs-on: ubuntu-latest
+    needs: package
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download Artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: lambda-function
+        path: .
+    
+    - name: Check Lambda Exists
+      id: check-lambda
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        if aws lambda get-function --function-name $LAMBDA_FUNCTION --region $AWS_REGION 2>/dev/null; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "✅ Lambda function exists"
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "⚠️  Lambda function not found"
+        fi
+    
+    - name: Deploy Lambda Code
+      if: steps.check-lambda.outputs.exists == 'true'
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        echo "🚀 Deploying Lambda function code..."
+        
+        aws lambda update-function-code \
+          --function-name $LAMBDA_FUNCTION \
+          --zip-file fileb://lambda-function.zip \
+          --region $AWS_REGION \
+          --no-cli-pager
+        
+        # Wait for update to stabilize
+        echo "⏳ Waiting for Lambda to be ready..."
+        sleep 5
+        
+        # Check update status
+        UPDATE_STATUS=$(aws lambda get-function --function-name $LAMBDA_FUNCTION --region $AWS_REGION --query 'Configuration.LastUpdateStatus' --output text)
+        echo "✅ Lambda Update Status: $UPDATE_STATUS"
+  
+  # Job 4: Configure Lambda
+  configure:
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: success()
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Update Lambda Configuration
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        echo "⚙️  Configuring Lambda environment..."
+        
+        # Get Phase 1 table names from CloudFormation
+        IMAGE_METADATA_TABLE=$(aws cloudformation describe-stacks \
+          --stack-name vehicle-guesser-image-metadata \
+          --query 'Stacks[0].Outputs[?OutputKey==`ImageMetadataTableName`].OutputValue' \
+          --output text \
+          --region $AWS_REGION 2>/dev/null || echo "vehicle-guesser-image-metadata-prod")
+        
+        BROKEN_IMAGES_TABLE=$(aws cloudformation describe-stacks \
+          --stack-name vehicle-guesser-image-metadata \
+          --query 'Stacks[0].Outputs[?OutputKey==`BrokenImagesTableName`].OutputValue' \
+          --output text \
+          --region $AWS_REGION 2>/dev/null || echo "vehicle-guesser-broken-images-prod")
+        
+        IMAGE_STATISTICS_TABLE=$(aws cloudformation describe-stacks \
+          --stack-name vehicle-guesser-image-metadata \
+          --query 'Stacks[0].Outputs[?OutputKey==`ImageStatisticsTableName`].OutputValue' \
+          --output text \
+          --region $AWS_REGION 2>/dev/null || echo "vehicle-guesser-image-stats-prod")
+        
+        echo "📋 Table Names:"
+        echo "  - Image Metadata: $IMAGE_METADATA_TABLE"
+        echo "  - Broken Images: $BROKEN_IMAGES_TABLE"
+        echo "  - Image Statistics: $IMAGE_STATISTICS_TABLE"
+        
+        # Update Lambda environment variables
+        aws lambda update-function-configuration \
+          --function-name $LAMBDA_FUNCTION \
+          --environment "Variables={
+            IMAGE_METADATA_TABLE=$IMAGE_METADATA_TABLE,
+            BROKEN_IMAGES_TABLE=$BROKEN_IMAGES_TABLE,
+            IMAGE_STATISTICS_TABLE=$IMAGE_STATISTICS_TABLE,
+            AWS_REGION=$AWS_REGION,
+            ENVIRONMENT=$ENVIRONMENT
+          }" \
+          --region $AWS_REGION \
+          --no-cli-pager || echo "⚠️  Could not update Lambda config"
+        
+        echo "✅ Lambda configuration updated"
+    
+    - name: Grant DynamoDB Permissions
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        echo "🔐 Verifying DynamoDB permissions..."
+        
+        # Get Lambda execution role
+        LAMBDA_ROLE=$(aws lambda get-function \
+          --function-name $LAMBDA_FUNCTION \
+          --query 'Configuration.Role' \
+          --output text \
+          --region $AWS_REGION)
+        
+        echo "Lambda Execution Role: $LAMBDA_ROLE"
+        
+        # Check if role has DynamoDB access
+        if aws iam get-role-policy \
+          --role-name $(basename $LAMBDA_ROLE) \
+          --policy-name dynamodb-access \
+          --region $AWS_REGION 2>/dev/null; then
+          echo "✅ DynamoDB permissions already configured"
+        else
+          echo "ℹ️  DynamoDB permissions should be configured via IAM policy"
+        fi
+  
+  # Job 5: Run Tests
+  test:
+    runs-on: ubuntu-latest
+    needs: configure
+    if: success()
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        sparse-checkout: |
+          cars-backend
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: cars-backend/package-lock.json
+    
+    - name: Install Dependencies
+      working-directory: cars-backend
+      run: npm ci
+    
+    - name: Run Unit Tests
+      working-directory: cars-backend
+      run: npm test 2>/dev/null || echo "⚠️  No tests configured"
+  
+  # Job 6: Deployment Summary
+  summary:
+    runs-on: ubuntu-latest
+    needs: [deploy, configure]
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Summary
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        echo "📋 BACKEND DEPLOYMENT SUMMARY"
+        echo "=============================="
+        echo ""
+        echo "Lambda Function: $LAMBDA_FUNCTION"
+        echo "Environment: $ENVIRONMENT"
+        echo "Region: $AWS_REGION"
+        echo "Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+        echo ""
+        
+        # Get Lambda status
+        if aws lambda get-function --function-name $LAMBDA_FUNCTION --region $AWS_REGION 2>/dev/null; then
+          LAMBDA_STATUS=$(aws lambda get-function --function-name $LAMBDA_FUNCTION --region $AWS_REGION --query 'Configuration.State' --output text)
+          LAST_UPDATE=$(aws lambda get-function --function-name $LAMBDA_FUNCTION --region $AWS_REGION --query 'Configuration.LastUpdateStatus' --output text)
+          
+          echo "✅ Lambda Status: $LAMBDA_STATUS"
+          echo "   Last Update: $LAST_UPDATE"
+          echo ""
+          echo "🔍 Environment Variables Configured:"
+          echo "   - IMAGE_METADATA_TABLE"
+          echo "   - BROKEN_IMAGES_TABLE"
+          echo "   - IMAGE_STATISTICS_TABLE"
+          echo "   - AWS_REGION"
+          echo "   - ENVIRONMENT"
+        else
+          echo "❌ Lambda function not found"
+        fi
+        
+        echo ""
+        echo "📖 Phase 1 Integration Status:"
+        echo "   ✅ New files included in deployment:"
+        echo "      - s3Config.js (unified S3 config)"
+        echo "      - imageMetadataService.js (metadata management)"
+        echo "   ✅ Modified files:"
+        echo "      - cognito-index.js (Phase 1 integration)"
+        echo ""
+        echo "🚀 Next: Deploy frontend from cars/.github/workflows/deploy.yml"

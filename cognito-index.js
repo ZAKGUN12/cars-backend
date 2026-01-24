@@ -1,18 +1,10 @@
 // Updated: 2024-01-15
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 
-// S3 Configuration
-const S3_CONFIG = {
-  BUCKET_NAME: 'vehicle-guesser-1764962592',
-  REGION: 'eu-west-1',
-  BASE_URL: 'https://vehicle-guesser-1764962592.s3.eu-west-1.amazonaws.com',
-  PATHS: {
-    VEHICLES: 'images/vehicles',
-    BRANDS: 'images/brands',
-    ICONS: 'images/icons',
-    THUMBNAILS: 'images/thumbnails'
-  }
-};
+// Import centralized S3 configuration (Phase 1 improvement)
+// This replaces the inline S3_CONFIG with a unified config that works across frontend/backend
+const { S3_CONFIG, S3_UrlManager } = require('./s3Config');
+const imageMetadataService = require('./imageMetadataService');
 
 // Vehicle database - organized by difficulty with new S3 paths
 const VEHICLE_DATABASE = {
@@ -1965,16 +1957,24 @@ async function generateVehiclePuzzle(level) {
 
 async function reportBrokenImage(imageUrl) {
   try {
-    const imageKey = imageUrl.replace(S3_CONFIG.BASE_URL + '/', '');
-    brokenImages.add(imageKey);
+    // Use centralized image metadata service (Phase 1 improvement)
+    const result = await imageMetadataService.reportBrokenImage(imageUrl);
     
-    console.log(`Marked image as broken: ${imageKey}`);
-    
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({ success: true, message: 'Image reported as broken' })
-    };
+    if (result.success) {
+      console.log(`Image reported as broken: ${imageUrl} (${result.source})`);
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: true, message: 'Image reported as broken' })
+      };
+    } else {
+      console.warn(`Failed to report broken image: ${result.error}`);
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Failed to report broken image' })
+      };
+    }
   } catch (error) {
     console.error('Report broken image error:', error);
     return {
