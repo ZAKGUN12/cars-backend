@@ -92,7 +92,7 @@ const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
 };
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'https://dw78cwmd7ajty.cloudfront.net',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Content-Type': 'application/json'
@@ -114,7 +114,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers: {
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': 'https://dw78cwmd7ajty.cloudfront.net',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
         },
