@@ -38,27 +38,49 @@ const generateSecureId = () => {
   return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };
 
-// Rate limiting
-const rateLimits = new Map();
+// Rate limiting with DynamoDB (persistent across Lambda restarts)
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const MAX_REQUESTS_PER_MINUTE = 100;
 
-function checkRateLimit(userId) {
+async function checkRateLimit(userId) {
   const now = Date.now();
-  const userRequests = rateLimits.get(userId) || [];
+  const windowStart = now - RATE_LIMIT_WINDOW;
   
-  // Remove old requests outside the window
-  const recentRequests = userRequests.filter(time => now - time < RATE_LIMIT_WINDOW);
-  
-  if (recentRequests.length >= MAX_REQUESTS_PER_MINUTE) {
-    return false; // Rate limit exceeded
+  try {
+    // Get user's request count from DynamoDB
+    const result = await dynamodb.send(new GetCommand({
+      TableName: process.env.GAME_DATA_TABLE,
+      Key: { userId },
+      ProjectionExpression: 'rateLimitData'
+    }));
+    
+    let requests = result.Item?.rateLimitData?.requests || [];
+    
+    // Remove old requests outside the window
+    requests = requests.filter(time => time > windowStart);
+    
+    if (requests.length >= MAX_REQUESTS_PER_MINUTE) {
+      return false; // Rate limit exceeded
+    }
+    
+    // Add current request
+    requests.push(now);
+    
+    // Update DynamoDB (fire and forget for performance)
+    dynamodb.send(new UpdateCommand({
+      TableName: process.env.GAME_DATA_TABLE,
+      Key: { userId },
+      UpdateExpression: 'SET rateLimitData = :data',
+      ExpressionAttributeValues: {
+        ':data': { requests, lastReset: now }
+      }
+    })).catch(err => console.warn('Rate limit update failed:', err));
+    
+    return true; // Request allowed
+  } catch (error) {
+    console.error('Rate limit check failed:', error);
+    return true; // Allow on error to prevent blocking legitimate users
   }
-  
-  // Add current request
-  recentRequests.push(now);
-  rateLimits.set(userId, recentRequests);
-  
-  return true; // Request allowed
 }
 const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, DeleteCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 

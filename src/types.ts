@@ -1,28 +1,10 @@
-// Type definitions for Vehicle Guesser Backend
-
-export interface Vehicle {
-  brand: string;
-  model: string;
-  year: number;
-}
-
-export interface VehicleData {
-  id: string;
-  vehicle: Vehicle;
-  imageKey: string;
-  imagePart: string;
-  brandOptions: string[];
-  modelOptions: string[];
-  yearOptions: number[];
-  level: 'Easy' | 'Medium' | 'Hard';
-  difficulty: number;
-  tags: string[];
-}
-
-export interface VehicleDatabase {
-  easy: VehicleData[];
-  medium: VehicleData[];
-  hard: VehicleData[];
+export interface User {
+  userId: string;
+  profile: UserProfile;
+  stats: UserStats;
+  createdAt: string;
+  updatedAt: string;
+  lastActivity?: string;
 }
 
 export interface UserProfile {
@@ -34,7 +16,7 @@ export interface UserProfile {
   authMethod: 'google' | 'email';
 }
 
-export interface GameStats {
+export interface UserStats {
   highScore: number;
   enduranceHighScore: number;
   gamesPlayed: number;
@@ -48,22 +30,10 @@ export interface GameStats {
   correctAnswers: number;
   incorrectAnswers: number;
   perfectRounds: number;
-  gameHistory: GameHistoryEntry[];
+  gameHistory: GameHistoryItem[];
   lastBonusDate: string;
   loginStreak: number;
   journeyProgress: Record<string, JourneyProgress>;
-}
-
-export interface GameHistoryEntry {
-  id: string;
-  date: string;
-  mode: string;
-  level: string;
-  score: number;
-  mistakes: number;
-  won: boolean;
-  timeSpent: number | null;
-  timestamp: string;
 }
 
 export interface JourneyProgress {
@@ -72,69 +42,16 @@ export interface JourneyProgress {
   completed: boolean;
 }
 
-export interface GameData {
-  userId: string;
-  profile: UserProfile;
-  stats: GameStats;
-  createdAt: string;
-  updatedAt: string;
-  lastActivity?: string;
-}
-
-export interface APIGatewayEvent {
-  httpMethod: string;
-  path: string;
-  body: string | null;
-  queryStringParameters?: Record<string, string>;
-  requestContext?: {
-    authorizer?: {
-      claims?: Record<string, string>;
-    };
-  };
-}
-
-export interface APIResponse {
-  statusCode: number;
-  headers: Record<string, string>;
-  body: string;
-}
-
-export interface UpdateGameDataRequest {
-  score?: number;
+export interface GameHistoryItem {
+  id: string;
+  date: string;
   mode: string;
-  level?: string;
-  mistakes?: number;
-  isEndurance?: boolean;
-  bonusData?: BonusData;
-  journeyData?: JourneyData;
-  hintCost?: number;
-  powerUpType?: string;
-  purchaseData?: PurchaseData;
-  profileData?: ProfileData;
-  correctCount?: number;
-  timeSpent?: number;
-}
-
-export interface BonusData {
-  gears: number;
-  lastBonusDate: string;
-  loginStreak: number;
-}
-
-export interface JourneyData {
-  levelId: string;
-  stars: number;
-  completed: boolean;
+  level: string;
   score: number;
-}
-
-export interface PurchaseData {
-  powerUp: string;
-  cost: number;
-}
-
-export interface ProfileData {
-  username: string;
+  mistakes: number;
+  won: boolean;
+  timeSpent?: number;
+  timestamp: string;
 }
 
 export interface Challenge {
@@ -148,23 +65,14 @@ export interface Challenge {
   difficulty: string;
   puzzle: any;
   performance: any[];
-  startTime: string | null;
-  status: 'pending' | 'accepted' | 'declined';
+  startTime?: string;
+  status: 'pending' | 'accepted' | 'declined' | 'completed';
   createdAt: string;
   expiresAt: string;
   ttl: number;
-  acceptedAt?: string;
-  declinedAt?: string;
 }
 
-export interface VehiclePuzzle {
-  id: string;
-  vehicle: Vehicle;
-  imageUrl: string;
-  brandOptions: string[];
-  modelOptions: string[];
-  yearOptions: number[];
-  difficulty: number;
-  tags: string[];
-  imagePart?: string;
+export interface RateLimitData {
+  requests: number[];
+  lastReset: number;
 }
