@@ -17,9 +17,27 @@ npm install
 
 ## Structure
 ```
-src/           # Source code (future)
+src/           # TypeScript source files
+dist/          # Compiled JavaScript for Lambda
 utils/         # Utility functions
 constants/     # Configuration constants
+```
+
+## TypeScript Integration
+The backend is migrating to TypeScript:
+- **src/**: Contains TypeScript source files
+- **dist/**: Contains compiled JavaScript deployed to Lambda
+- **Build**: `npm run build` compiles TypeScript to dist/
+- **Old .js files**: Still work during migration (cognito-index.js, websocket.js, etc.)
+
+## Building & Deploying
+```bash
+# Build TypeScript
+npm run build
+
+# Package and deploy
+npm run package
+npm run deploy
 ```
 
 ## API Endpoints
