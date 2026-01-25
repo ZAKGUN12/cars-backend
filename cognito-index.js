@@ -160,7 +160,8 @@ exports.handler = async (event) => {
         };
       }
       
-      return await generateVehiclePuzzle(requestData.level);
+      const difficulty = requestData.difficulty || requestData.level || 'Easy';
+      return await generateVehiclePuzzle(difficulty);
     }
     
     if (path === '/vehicles/report-broken' && httpMethod === 'POST') {
