@@ -1,7 +1,6 @@
-// Expanded Vehicle Database - matches S3 images
-// This replaces the small VEHICLE_DATABASE in cognito-index.js
+import { VehicleDatabase } from './types';
 
-const EXPANDED_VEHICLE_DATABASE = {
+export const VEHICLE_DATABASE: VehicleDatabase = {
   easy: [
     // Existing
     {
@@ -373,5 +372,3 @@ const EXPANDED_VEHICLE_DATABASE = {
     }
   ]
 };
-
-export const VEHICLE_DATABASE = EXPANDED_VEHICLE_DATABASE;

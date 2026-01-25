@@ -3,6 +3,7 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateComm
 import { APIGatewayEvent, APIResponse, UserProfile, GameData, UpdateGameDataRequest } from './types';
 import { VEHICLE_DATABASE } from './vehicleDatabase';
 import { S3_CONFIG } from './config';
+import { successResponse, errorResponse, parseJSON, validateRequired } from './utils';
 
 const client = new DynamoDBClient({ 
   region: process.env.AWS_REGION || 'eu-west-1',
@@ -59,13 +60,11 @@ async function retryOperation<T>(operation: () => Promise<T>, maxRetries = 3): P
 }
 
 export const handler = async (event: APIGatewayEvent): Promise<APIResponse> => {
-  console.log('Event:', JSON.stringify(event, null, 2));
-
   try {
     const { httpMethod, path, body } = event;
     
     if (httpMethod === 'OPTIONS') {
-      return { statusCode: 200, headers: CORS_HEADERS, body: '' };
+      return successResponse('');
     }
 
     if (path === '/leaderboard' && httpMethod === 'GET') {
@@ -73,19 +72,16 @@ export const handler = async (event: APIGatewayEvent): Promise<APIResponse> => {
     }
 
     if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
-      const data = JSON.parse(body || '{}');
+      const data = parseJSON(body, { level: 'easy' });
+      validateRequired(data.level, 'level');
       return await generateVehiclePuzzle(data.level);
     }
 
     const claims = event.requestContext?.authorizer?.claims;
-    const userId = claims?.sub;
+    const userId = validateRequired(claims?.sub, 'userId');
     
-    if (!userId) {
-      return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
-    }
-
     if (!checkRateLimit(userId)) {
-      return { statusCode: 429, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Rate limit exceeded' }) };
+      return errorResponse('Rate limit exceeded', 429);
     }
 
     const userProfile: UserProfile = {
@@ -100,16 +96,17 @@ export const handler = async (event: APIGatewayEvent): Promise<APIResponse> => {
     if (path === '/gamedata') {
       if (httpMethod === 'GET') return await getGameData(userId, userProfile);
       if (httpMethod === 'POST') {
-        const gameData: UpdateGameDataRequest = JSON.parse(body || '{}');
+        const gameData = parseJSON<UpdateGameDataRequest>(body, {} as UpdateGameDataRequest);
         return await updateGameData(userId, gameData, userProfile);
       }
     }
 
-    return { statusCode: 404, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Not found' }) };
+    return errorResponse('Not found', 404);
 
   } catch (error) {
     console.error('Lambda error:', error);
-    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Internal server error' }) };
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    return errorResponse(message, 500);
   }
 };
 
@@ -148,10 +145,10 @@ async function getGameData(userId: string, userProfile: UserProfile): Promise<AP
       updatedAt: new Date().toISOString()
     };
 
-    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(gameData) };
+    return successResponse(gameData);
   } catch (error) {
     console.error('Get game data error:', error);
-    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to get game data' }) };
+    return errorResponse('Failed to get game data');
   }
 }
 
@@ -206,10 +203,10 @@ async function updateGameData(userId: string, gameData: UpdateGameDataRequest, u
       }))
     );
 
-    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(updateResult.Attributes) };
+    return successResponse(updateResult.Attributes);
   } catch (error) {
     console.error('Update game data error:', error);
-    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to update game data' }) };
+    return errorResponse('Failed to update game data');
   }
 }
 
@@ -229,10 +226,10 @@ async function getLeaderboard(): Promise<APIResponse> {
       .sort((a, b) => b.highScore - a.highScore)
       .slice(0, 10);
 
-    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify({ leaderboard: players }) };
+    return successResponse({ leaderboard: players });
   } catch (error) {
     console.error('Get leaderboard error:', error);
-    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to get leaderboard' }) };
+    return errorResponse('Failed to get leaderboard');
   }
 }
 
@@ -242,7 +239,7 @@ async function generateVehiclePuzzle(level: string): Promise<APIResponse> {
     const vehicles = VEHICLE_DATABASE[levelKey] || [];
     
     if (!vehicles.length) {
-      return { statusCode: 404, headers: CORS_HEADERS, body: JSON.stringify({ error: 'No vehicles available' }) };
+      return errorResponse('No vehicles available', 404);
     }
     
     const randomVehicle = vehicles[Math.floor(Math.random() * vehicles.length)];
@@ -259,9 +256,9 @@ async function generateVehiclePuzzle(level: string): Promise<APIResponse> {
       tags: randomVehicle.tags
     };
     
-    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(puzzle) };
+    return successResponse(puzzle);
   } catch (error) {
     console.error('Generate puzzle error:', error);
-    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to generate puzzle' }) };
+    return errorResponse('Failed to generate puzzle');
   }
 }

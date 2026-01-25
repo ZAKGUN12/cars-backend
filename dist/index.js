@@ -5,6 +5,7 @@ const client_dynamodb_1 = require("@aws-sdk/client-dynamodb");
 const lib_dynamodb_1 = require("@aws-sdk/lib-dynamodb");
 const vehicleDatabase_1 = require("./vehicleDatabase");
 const config_1 = require("./config");
+const utils_1 = require("./utils");
 const client = new client_dynamodb_1.DynamoDBClient({
     region: process.env.AWS_REGION || 'eu-west-1',
     maxAttempts: 3,
@@ -54,26 +55,23 @@ async function retryOperation(operation, maxRetries = 3) {
     throw new Error('Retry failed');
 }
 const handler = async (event) => {
-    console.log('Event:', JSON.stringify(event, null, 2));
     try {
         const { httpMethod, path, body } = event;
         if (httpMethod === 'OPTIONS') {
-            return { statusCode: 200, headers: CORS_HEADERS, body: '' };
+            return (0, utils_1.successResponse)('');
         }
         if (path === '/leaderboard' && httpMethod === 'GET') {
             return await getLeaderboard();
         }
         if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
-            const data = JSON.parse(body || '{}');
+            const data = (0, utils_1.parseJSON)(body, { level: 'easy' });
+            (0, utils_1.validateRequired)(data.level, 'level');
             return await generateVehiclePuzzle(data.level);
         }
         const claims = event.requestContext?.authorizer?.claims;
-        const userId = claims?.sub;
-        if (!userId) {
-            return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
-        }
+        const userId = (0, utils_1.validateRequired)(claims?.sub, 'userId');
         if (!checkRateLimit(userId)) {
-            return { statusCode: 429, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Rate limit exceeded' }) };
+            return (0, utils_1.errorResponse)('Rate limit exceeded', 429);
         }
         const userProfile = {
             email: claims?.email || '',
@@ -87,15 +85,16 @@ const handler = async (event) => {
             if (httpMethod === 'GET')
                 return await getGameData(userId, userProfile);
             if (httpMethod === 'POST') {
-                const gameData = JSON.parse(body || '{}');
+                const gameData = (0, utils_1.parseJSON)(body, {});
                 return await updateGameData(userId, gameData, userProfile);
             }
         }
-        return { statusCode: 404, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Not found' }) };
+        return (0, utils_1.errorResponse)('Not found', 404);
     }
     catch (error) {
         console.error('Lambda error:', error);
-        return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Internal server error' }) };
+        const message = error instanceof Error ? error.message : 'Internal server error';
+        return (0, utils_1.errorResponse)(message, 500);
     }
 };
 exports.handler = handler;
@@ -130,11 +129,11 @@ async function getGameData(userId, userProfile) {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
-        return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(gameData) };
+        return (0, utils_1.successResponse)(gameData);
     }
     catch (error) {
         console.error('Get game data error:', error);
-        return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to get game data' }) };
+        return (0, utils_1.errorResponse)('Failed to get game data');
     }
 }
 async function updateGameData(userId, gameData, userProfile) {
@@ -180,11 +179,11 @@ async function updateGameData(userId, gameData, userProfile) {
             },
             ReturnValues: 'ALL_NEW'
         })));
-        return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(updateResult.Attributes) };
+        return (0, utils_1.successResponse)(updateResult.Attributes);
     }
     catch (error) {
         console.error('Update game data error:', error);
-        return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to update game data' }) };
+        return (0, utils_1.errorResponse)('Failed to update game data');
     }
 }
 async function getLeaderboard() {
@@ -199,11 +198,11 @@ async function getLeaderboard() {
         }))
             .sort((a, b) => b.highScore - a.highScore)
             .slice(0, 10);
-        return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify({ leaderboard: players }) };
+        return (0, utils_1.successResponse)({ leaderboard: players });
     }
     catch (error) {
         console.error('Get leaderboard error:', error);
-        return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to get leaderboard' }) };
+        return (0, utils_1.errorResponse)('Failed to get leaderboard');
     }
 }
 async function generateVehiclePuzzle(level) {
@@ -211,7 +210,7 @@ async function generateVehiclePuzzle(level) {
         const levelKey = level.toLowerCase();
         const vehicles = vehicleDatabase_1.VEHICLE_DATABASE[levelKey] || [];
         if (!vehicles.length) {
-            return { statusCode: 404, headers: CORS_HEADERS, body: JSON.stringify({ error: 'No vehicles available' }) };
+            return (0, utils_1.errorResponse)('No vehicles available', 404);
         }
         const randomVehicle = vehicles[Math.floor(Math.random() * vehicles.length)];
         const imageUrl = `${config_1.S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
@@ -225,10 +224,10 @@ async function generateVehiclePuzzle(level) {
             difficulty: randomVehicle.difficulty,
             tags: randomVehicle.tags
         };
-        return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify(puzzle) };
+        return (0, utils_1.successResponse)(puzzle);
     }
     catch (error) {
         console.error('Generate puzzle error:', error);
-        return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Failed to generate puzzle' }) };
+        return (0, utils_1.errorResponse)('Failed to generate puzzle');
     }
 }
