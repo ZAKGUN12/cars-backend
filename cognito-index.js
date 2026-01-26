@@ -796,7 +796,7 @@ async function updateGameData(userId, gameData, userProfile) {
       // Recalculate score on server to prevent manipulation
       const basePoints = isEndurance ? 10 : 25;
       const maxTimeBonus = 10 * 2; // Max 10 seconds * 2 multiplier
-      const maxComboBonus = 5 * 5; // Max 5 combo * 5 multiplier
+      const maxComboBonus = 3 * 5; // Max 3 combo * 5 multiplier
       const perfectBonus = (mistakes === 0 && !isEndurance) ? 30 : 0;
       
       serverCalculatedScore = basePoints + maxTimeBonus + maxComboBonus + perfectBonus;
