@@ -490,23 +490,6 @@ const EXPANDED_VEHICLE_DATABASE = {
       level: 'Hard',
       difficulty: 9,
       tags: ['sports', 'exotic', 'track']
-    }
-  ]
-};
-
-module.exports = EXPANDED_VEHICLE_DATABASE;
-  hard: [
-    {
-      id: 'hard_001',
-      vehicle: { brand: 'Porsche', model: '911 GT3', year: 2020 },
-      imageKey: 'images/vehicles/hard/porsche-911gt3-2020-exhaust.jpg',
-      imagePart: 'exhaust',
-      brandOptions: ['Porsche', 'Ferrari', 'Lamborghini', 'McLaren'],
-      modelOptions: ['911 GT3', '911 Turbo', 'Cayman GT4', 'Boxster'],
-      yearOptions: [2020, 2019, 2018, 2017],
-      level: 'Hard',
-      difficulty: 9,
-      tags: ['sports', 'exotic', 'track']
     },
     {
       id: 'hard_002',
