@@ -793,28 +793,45 @@ async function updateGameData(userId, gameData, userProfile) {
     let serverCalculatedXP = 0;
     
     if (mode !== 'bonus' && mode !== 'profile_update' && mode !== 'hint' && mode !== 'powerup' && mode !== 'purchase') {
-      // Recalculate score on server to prevent manipulation
+      // Frontend sends TOTAL score for vehicle (3 questions combined)
+      // Each question: base(25) + timeBonus(max 20) + comboBonus(max 15) = 60 max
+      // 3 questions: 60 × 3 = 180 max
+      // Perfect bonus: +30 if 0 mistakes
+      // Total max per vehicle: 210 points
+      
       const basePoints = isEndurance ? 10 : 25;
-      const maxTimeBonus = 10 * 2; // Max 10 seconds * 2 multiplier
-      const maxComboBonus = 3 * 5; // Max 3 combo * 5 multiplier
+      const maxPointsPerQuestion = basePoints + (10 * 2) + (3 * 5); // base + maxTime + maxCombo
+      const maxPointsFor3Questions = maxPointsPerQuestion * 3;
       const perfectBonus = (mistakes === 0 && !isEndurance) ? 30 : 0;
+      const maxScorePerVehicle = maxPointsFor3Questions + perfectBonus;
       
-      serverCalculatedScore = basePoints + maxTimeBonus + maxComboBonus + perfectBonus;
-      
-      // Validate against client score (allow 10% variance for network delays)
-      const variance = Math.abs(score - serverCalculatedScore) / serverCalculatedScore;
-      if (variance > 0.1) {
-        console.warn(`Score mismatch: client=${score}, server=${serverCalculatedScore}, variance=${variance}`);
-        // Use server calculated score
-        score = serverCalculatedScore;
+      // Validate client score is within realistic bounds
+      if (score > maxScorePerVehicle) {
+        console.warn(`Score too high: client=${score}, max=${maxScorePerVehicle} for user ${userId}`);
+        score = maxScorePerVehicle;
       }
       
-      // Server-side gear calculation
-      serverCalculatedGears = Math.floor(serverCalculatedScore / 50) + (mistakes === 0 ? 10 : 0);
+      // Validate minimum score (at least got something right if correctCount > 0)
+      if (score < 0 || (correctCount > 0 && score === 0)) {
+        console.warn(`Invalid score: ${score} with correctCount=${correctCount} for user ${userId}`);
+        score = correctCount * basePoints; // Give base points at minimum
+      }
       
-      // Server-side XP calculation
-      const baseXp = Math.floor(serverCalculatedScore / 10);
+      // Server-side gear calculation based on actual score
+      serverCalculatedGears = Math.floor(score / 50) + (mistakes === 0 ? 10 : 0);
+      
+      // Server-side XP calculation based on actual score
+      const baseXp = Math.floor(score / 10);
       serverCalculatedXP = baseXp + (mistakes === 0 ? 25 : 0);
+      
+      console.log('Score validation:', { 
+        client: score, 
+        max: maxScorePerVehicle, 
+        mistakes, 
+        correctCount,
+        gears: serverCalculatedGears, 
+        xp: serverCalculatedXP 
+      });
     }
     
     // Basic score validation with tighter limits
