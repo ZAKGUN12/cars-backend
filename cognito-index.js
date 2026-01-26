@@ -603,7 +603,7 @@ async function getGameData(userId, userProfile) {
       },
       stats: {
         highScore: 0,
-        enduranceHighScore: 0,
+        
         gamesPlayed: 0,
         gamesWon: 0,
         totalPoints: 0,
@@ -709,7 +709,7 @@ async function updateGameData(userId, gameData, userProfile) {
       },
       stats: {
         highScore: 0,
-        enduranceHighScore: 0,
+        
         gamesPlayed: 0,
         gamesWon: 0,
         totalPoints: 0,
@@ -761,7 +761,7 @@ async function updateGameData(userId, gameData, userProfile) {
     currentData.stats.xp = Number(currentData.stats.xp) || 0;
     currentData.stats.level = Number(currentData.stats.level) || 1;
     currentData.stats.highScore = Number(currentData.stats.highScore) || 0;
-    currentData.stats.enduranceHighScore = Number(currentData.stats.enduranceHighScore) || 0;
+    
     currentData.stats.gamesPlayed = Number(currentData.stats.gamesPlayed) || 0;
     currentData.stats.gamesWon = Number(currentData.stats.gamesWon) || 0;
     currentData.stats.totalPoints = Number(currentData.stats.totalPoints) || 0;
@@ -779,7 +779,7 @@ async function updateGameData(userId, gameData, userProfile) {
     if (!currentData.stats.gameHistory) currentData.stats.gameHistory = [];
 
     // Update stats
-    let { score, mode, level, mistakes = 0, isEndurance = false, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
+    let { score, mode, level, mistakes = 0, bonusData, journeyData, hintCost, powerUpType, purchaseData, profileData, correctCount = 0 } = gameData;
     
     // Enhanced server-side score validation (anti-cheat)
     const MAX_POINTS_PER_VEHICLE = 210;
@@ -799,10 +799,10 @@ async function updateGameData(userId, gameData, userProfile) {
       // Perfect bonus: +30 if 0 mistakes
       // Total max per vehicle: 210 points
       
-      const basePoints = isEndurance ? 10 : 25;
+      const basePoints = 25;
       const maxPointsPerQuestion = basePoints + (10 * 2) + (3 * 5); // base + maxTime + maxCombo
       const maxPointsFor3Questions = maxPointsPerQuestion * 3;
-      const perfectBonus = (mistakes === 0 && !isEndurance) ? 30 : 0;
+      const perfectBonus = (mistakes === 0) ? 30 : 0;
       const maxScorePerVehicle = maxPointsFor3Questions + perfectBonus;
       
       // Validate client score is within realistic bounds
@@ -934,17 +934,13 @@ async function updateGameData(userId, gameData, userProfile) {
         currentData.stats.gamesWon = Number(currentData.stats.gamesWon || 0) + 1;
       }
       
-      if (isEndurance) {
-        currentData.stats.enduranceHighScore = Math.max(Number(currentData.stats.enduranceHighScore || 0), Number(score || 0));
-      } else {
-        currentData.stats.highScore = Math.max(Number(currentData.stats.highScore || 0), Number(score || 0));
-      }
+      currentData.stats.highScore = Math.max(Number(currentData.stats.highScore || 0), Number(score || 0));
       
       currentData.stats.correctAnswers = Number(currentData.stats.correctAnswers || 0) + Number(correctCount || 0);
       currentData.stats.incorrectAnswers = Number(currentData.stats.incorrectAnswers || 0) + Number(mistakes || 0);
       
       // Perfect game: completed with no mistakes and minimum score
-      const isPerfectGame = !isEndurance && mistakes === 0 && Number(score || 0) >= 50;
+      const isPerfectGame = mistakes === 0 && Number(score || 0) >= 50;
       if (isPerfectGame) {
         currentData.stats.perfectRounds += 1;
       }
