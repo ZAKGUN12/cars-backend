@@ -756,6 +756,28 @@ async function updateGameData(userId, gameData, userProfile) {
       }
     }
     
+    // Ensure stats object exists for all users (migration)
+    if (!currentData.stats) {
+      currentData.stats = {
+        highScore: 0,
+        gamesPlayed: 0,
+        gamesWon: 0,
+        totalPoints: 0,
+        difficultyPlays: { Easy: 0, Medium: 0, Hard: 0 },
+        gears: 20,
+        xp: 0,
+        level: 1,
+        powerUps: { timeFreeze: 0, clueGiver: 0 },
+        correctAnswers: 0,
+        incorrectAnswers: 0,
+        perfectRounds: 0,
+        gameHistory: [],
+        lastBonusDate: '',
+        loginStreak: 0,
+        journeyProgress: {}
+      };
+    }
+    
     // Ensure all numeric fields are valid numbers
     currentData.stats.gears = Number(currentData.stats.gears) || 20;
     currentData.stats.xp = Number(currentData.stats.xp) || 0;
