@@ -1998,58 +1998,67 @@ async function verifyAnswer(puzzleId, part, answer) {
       };
     }
     
-    // Get puzzle session from DynamoDB
-    const result = await dynamodb.send(new GetCommand({
-      TableName: PUZZLE_SESSION_TABLE,
-      Key: { puzzleId }
-    }));
-    
-    if (!result.Item) {
-      return {
-        statusCode: 404,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Puzzle session not found or expired' })
-      };
-    }
-    
-    const session = result.Item;
-    const answeredParts = new Set(session.answeredParts || []);
-    
-    // Check if this part was already answered (prevent replay)
-    if (answeredParts.has(part)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Part already answered' })
-      };
-    }
-    
-    // Mark as answered and update DynamoDB
-    answeredParts.add(part);
-    await dynamodb.send(new PutCommand({
-      TableName: PUZZLE_SESSION_TABLE,
-      Item: {
-        ...session,
-        answeredParts: Array.from(answeredParts)
+    // Get puzzle session from DynamoDB and update atomically
+    try {
+      const result = await dynamodb.send(new GetCommand({
+        TableName: PUZZLE_SESSION_TABLE,
+        Key: { puzzleId }
+      }));
+      
+      if (!result.Item) {
+        return {
+          statusCode: 404,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Puzzle session not found or expired' })
+        };
       }
-    }));
-    
-    // Normalize strings for comparison
-    const normalizeString = (str) => String(str).trim().toLowerCase().replace(/\s+/g, '');
-    const userAnswer = normalizeString(answer);
-    const correctAnswer = normalizeString(session.vehicle[part]);
-    
-    const isCorrect = userAnswer === correctAnswer;
-    
-    // Return result with correct answer only if user answered
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        correct: isCorrect,
-        correctAnswer: session.vehicle[part] // Reveal after answer attempt
-      })
-    };
+      
+      const session = result.Item;
+      const answeredParts = new Set(session.answeredParts || []);
+      
+      // Check if this part was already answered (prevent replay)
+      if (answeredParts.has(part)) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Part already answered' })
+        };
+      }
+      
+      // Mark as answered and update DynamoDB
+      answeredParts.add(part);
+      await dynamodb.send(new PutCommand({
+        TableName: PUZZLE_SESSION_TABLE,
+        Item: {
+          ...session,
+          answeredParts: Array.from(answeredParts)
+        }
+      }));
+      
+      // Normalize strings for comparison
+      const normalizeString = (str) => String(str).trim().toLowerCase().replace(/\s+/g, '');
+      const userAnswer = normalizeString(answer);
+      const correctAnswer = normalizeString(session.vehicle[part]);
+      
+      const isCorrect = userAnswer === correctAnswer;
+      
+      // Return result with correct answer only if user answered
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          correct: isCorrect,
+          correctAnswer: session.vehicle[part] // Reveal after answer attempt
+        })
+      };
+    } catch (error) {
+      console.error('Verify answer error:', error);
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Failed to verify answer' })
+      };
+    }
   } catch (error) {
     console.error('Verify answer error:', error);
     return {
