@@ -155,6 +155,8 @@ exports.handler = async (event) => {
     
     // Vehicle API endpoints - make public for better performance
     if (path === '/verify-answer' && httpMethod === 'POST') {
+      console.log('verify-answer request:', { body, bodyType: typeof body });
+      
       if (!body) {
         return {
           statusCode: 400,
@@ -166,11 +168,22 @@ exports.handler = async (event) => {
       let requestData;
       try {
         requestData = JSON.parse(body);
+        console.log('Parsed request data:', requestData);
       } catch (parseError) {
+        console.error('JSON parse error:', parseError);
         return {
           statusCode: 400,
           headers: corsHeaders,
           body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      if (!requestData.puzzleId || !requestData.part || requestData.answer === undefined) {
+        console.error('Missing fields:', requestData);
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Missing required fields', received: requestData })
         };
       }
       
