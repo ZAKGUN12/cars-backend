@@ -5,9 +5,9 @@ const { S3_CONFIG } = require('./s3Config');
 const imageMetadataService = require('./imageMetadataService');
 const VEHICLE_DATABASE = require('./expandedVehicleDatabase');
 
-// Puzzle session storage (in-memory for Lambda)
-const puzzleSessions = new Map();
+// Puzzle session storage (DynamoDB for persistence)
 const SESSION_TIMEOUT = 600000; // 10 minutes
+const PUZZLE_SESSION_TABLE = process.env.PUZZLE_SESSION_TABLE || process.env.GAME_DATA_TABLE;
 
 // Blacklisted images (broken/missing)
 const brokenImages = new Set();
@@ -1947,19 +1947,18 @@ async function generateVehiclePuzzle(level) {
     // Generate unique puzzle ID
     const puzzleId = `puzzle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Store puzzle session with correct answers (server-side only)
-    puzzleSessions.set(puzzleId, {
-      vehicle: randomVehicle.vehicle,
-      createdAt: Date.now(),
-      answeredParts: new Set()
-    });
-    
-    // Clean up old sessions
-    for (const [id, session] of puzzleSessions.entries()) {
-      if (Date.now() - session.createdAt > SESSION_TIMEOUT) {
-        puzzleSessions.delete(id);
+    // Store puzzle session in DynamoDB
+    const ttl = Math.floor((Date.now() + SESSION_TIMEOUT) / 1000);
+    await dynamodb.send(new PutCommand({
+      TableName: PUZZLE_SESSION_TABLE,
+      Item: {
+        puzzleId,
+        vehicle: randomVehicle.vehicle,
+        createdAt: Date.now(),
+        answeredParts: [],
+        ttl
       }
-    }
+    }));
     
     // Send puzzle WITHOUT correct answers
     const puzzle = {
@@ -1999,9 +1998,13 @@ async function verifyAnswer(puzzleId, part, answer) {
       };
     }
     
-    // Get puzzle session
-    const session = puzzleSessions.get(puzzleId);
-    if (!session) {
+    // Get puzzle session from DynamoDB
+    const result = await dynamodb.send(new GetCommand({
+      TableName: PUZZLE_SESSION_TABLE,
+      Key: { puzzleId }
+    }));
+    
+    if (!result.Item) {
       return {
         statusCode: 404,
         headers: corsHeaders,
@@ -2009,8 +2012,11 @@ async function verifyAnswer(puzzleId, part, answer) {
       };
     }
     
+    const session = result.Item;
+    const answeredParts = new Set(session.answeredParts || []);
+    
     // Check if this part was already answered (prevent replay)
-    if (session.answeredParts.has(part)) {
+    if (answeredParts.has(part)) {
       return {
         statusCode: 400,
         headers: corsHeaders,
@@ -2018,8 +2024,15 @@ async function verifyAnswer(puzzleId, part, answer) {
       };
     }
     
-    // Mark as answered
-    session.answeredParts.add(part);
+    // Mark as answered and update DynamoDB
+    answeredParts.add(part);
+    await dynamodb.send(new PutCommand({
+      TableName: PUZZLE_SESSION_TABLE,
+      Item: {
+        ...session,
+        answeredParts: Array.from(answeredParts)
+      }
+    }));
     
     // Normalize strings for comparison
     const normalizeString = (str) => String(str).trim().toLowerCase().replace(/\s+/g, '');
