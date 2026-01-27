@@ -1193,11 +1193,11 @@ async function getLeaderboard() {
           username: displayName,
           needsUsernameSetup,
           picture: item.profile?.picture,
-          highScore: item.stats.highScore || 0,
-          level: item.stats.level || 1,
-          gamesPlayed: item.stats.gamesPlayed || 0,
-          totalPoints: item.stats.totalPoints || 0,
-          winRate: item.stats.gamesPlayed > 0 ? Math.round((item.stats.gamesWon / item.stats.gamesPlayed) * 100) : 0,
+          highScore: item.stats?.highScore || 0,
+          level: item.stats?.level || 1,
+          gamesPlayed: item.stats?.gamesPlayed || 0,
+          totalPoints: item.stats?.totalPoints || 0,
+          winRate: item.stats?.gamesPlayed > 0 ? Math.round((item.stats?.gamesWon / item.stats?.gamesPlayed) * 100) : 0,
           lastActive: item.lastActivity || item.updatedAt || item.createdAt,
           isOnline: (item.lastActivity || item.updatedAt) && (Date.now() - new Date(item.lastActivity || item.updatedAt).getTime()) < 180000 // 3 minutes
         };
