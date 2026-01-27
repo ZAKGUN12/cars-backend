@@ -1202,7 +1202,7 @@ async function getLeaderboard() {
           isOnline: (item.lastActivity || item.updatedAt) && (Date.now() - new Date(item.lastActivity || item.updatedAt).getTime()) < 180000 // 3 minutes
         };
       })
-      .filter(player => player.username !== 'Anonymous') // Show all players including those needing username setup
+      .filter(player => player.username !== 'Anonymous' && !player.username.startsWith('UID_')) // Exclude anonymous and UID users
       .sort((a, b) => b.highScore - a.highScore)
       .slice(0, 50) // Show top 50 for rival challenges
       .map((user, index) => ({
