@@ -7,7 +7,7 @@ const VEHICLE_DATABASE = require('./expandedVehicleDatabase');
 
 // Puzzle session storage (DynamoDB for persistence)
 const SESSION_TIMEOUT = 600000; // 10 minutes
-const PUZZLE_SESSION_TABLE = process.env.PUZZLE_SESSION_TABLE || process.env.GAME_DATA_TABLE;
+const PUZZLE_SESSION_TABLE = 'vehicle-guesser-puzzle-sessions-prod';
 
 // Blacklisted images (broken/missing)
 const brokenImages = new Set();
