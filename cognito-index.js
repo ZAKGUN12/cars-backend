@@ -5,6 +5,10 @@ const { S3_CONFIG } = require('./s3Config');
 const imageMetadataService = require('./imageMetadataService');
 const VEHICLE_DATABASE = require('./expandedVehicleDatabase');
 
+// Puzzle session storage (in-memory for Lambda)
+const puzzleSessions = new Map();
+const SESSION_TIMEOUT = 600000; // 10 minutes
+
 // Blacklisted images (broken/missing)
 const brokenImages = new Set();
 
@@ -150,6 +154,29 @@ exports.handler = async (event) => {
     }
     
     // Vehicle API endpoints - make public for better performance
+    if (path === '/verify-answer' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let requestData;
+      try {
+        requestData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await verifyAnswer(requestData.puzzleId, requestData.part, requestData.answer);
+    }
+    
     if (path === '/vehicles' && httpMethod === 'GET') {
       const level = event.queryStringParameters?.level;
       if (!level) {
@@ -1904,15 +1931,33 @@ async function generateVehiclePuzzle(level) {
     // Build full image URL
     const imageUrl = `${S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
     
-    const puzzle = {
-      id: randomVehicle.id,
+    // Generate unique puzzle ID
+    const puzzleId = `puzzle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Store puzzle session with correct answers (server-side only)
+    puzzleSessions.set(puzzleId, {
       vehicle: randomVehicle.vehicle,
+      createdAt: Date.now(),
+      answeredParts: new Set()
+    });
+    
+    // Clean up old sessions
+    for (const [id, session] of puzzleSessions.entries()) {
+      if (Date.now() - session.createdAt > SESSION_TIMEOUT) {
+        puzzleSessions.delete(id);
+      }
+    }
+    
+    // Send puzzle WITHOUT correct answers
+    const puzzle = {
+      id: puzzleId,
       imageUrl: imageUrl,
       brandOptions: shuffleArray([...randomVehicle.brandOptions]),
       modelOptions: shuffleArray([...randomVehicle.modelOptions]),
       yearOptions: shuffleArray([...randomVehicle.yearOptions]),
       difficulty: randomVehicle.difficulty,
       tags: randomVehicle.tags
+      // vehicle: REMOVED - not sent to client
     };
     
     return {
@@ -1926,6 +1971,65 @@ async function generateVehiclePuzzle(level) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to generate puzzle' })
+    };
+  }
+}
+
+async function verifyAnswer(puzzleId, part, answer) {
+  try {
+    // Validate inputs
+    if (!puzzleId || !part || answer === undefined) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Missing required fields' })
+      };
+    }
+    
+    // Get puzzle session
+    const session = puzzleSessions.get(puzzleId);
+    if (!session) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Puzzle session not found or expired' })
+      };
+    }
+    
+    // Check if this part was already answered (prevent replay)
+    if (session.answeredParts.has(part)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Part already answered' })
+      };
+    }
+    
+    // Mark as answered
+    session.answeredParts.add(part);
+    
+    // Normalize strings for comparison
+    const normalizeString = (str) => String(str).trim().toLowerCase().replace(/\s+/g, '');
+    const userAnswer = normalizeString(answer);
+    const correctAnswer = normalizeString(session.vehicle[part]);
+    
+    const isCorrect = userAnswer === correctAnswer;
+    
+    // Return result with correct answer only if user answered
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        correct: isCorrect,
+        correctAnswer: session.vehicle[part] // Reveal after answer attempt
+      })
+    };
+  } catch (error) {
+    console.error('Verify answer error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to verify answer' })
     };
   }
 }
