@@ -1255,11 +1255,11 @@ async function setupUsername(userId, username, userProfile) {
       };
     }
     
-    if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
+    if (!/^[a-zA-Z]+$/.test(trimmedUsername)) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Username can only contain letters, numbers, and underscores' })
+        body: JSON.stringify({ error: 'Username can only contain letters' })
       };
     }
     
