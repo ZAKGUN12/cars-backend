@@ -631,42 +631,60 @@ async function getGameData(userId, userProfile) {
 
     // No account linking - each userId is unique
 
-    const gameData = result.Item || {
-      userId,
-      profile: {
-        email: userProfile.email,
-        username: userProfile.username,
-        name: userProfile.name,
-        picture: userProfile.picture,
-        emailVerified: userProfile.emailVerified,
-        authMethod: userProfile.authMethod
-      },
-      stats: {
-        highScore: 0,
-        
-        gamesPlayed: 0,
-        gamesWon: 0,
-        totalPoints: 0,
-        difficultyPlays: { Easy: 0, Medium: 0, Hard: 0 },
-        gears: 20,
-        xp: 0,
-        level: 1,
-        powerUps: { timeFreeze: 0, clueGiver: 0 },
-        correctAnswers: 0,
-        incorrectAnswers: 0,
-        perfectRounds: 0,
-        gameHistory: [],
-        lastBonusDate: '',
-        loginStreak: 0,
-        journeyProgress: {}
-      },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    let gameData = result.Item;
+    
+    // Create new user if doesn't exist
+    if (!gameData) {
+      gameData = {
+        userId,
+        profile: {
+          email: userProfile.email,
+          username: userProfile.username,
+          name: userProfile.name,
+          picture: userProfile.picture,
+          emailVerified: userProfile.emailVerified,
+          authMethod: userProfile.authMethod
+        },
+        stats: {
+          highScore: 0,
+          gamesPlayed: 0,
+          gamesWon: 0,
+          totalPoints: 0,
+          difficultyPlays: { Easy: 0, Medium: 0, Hard: 0 },
+          gears: 20,
+          xp: 0,
+          level: 1,
+          powerUps: { timeFreeze: 0, clueGiver: 0 },
+          correctAnswers: 0,
+          incorrectAnswers: 0,
+          perfectRounds: 0,
+          gameHistory: [],
+          lastBonusDate: '',
+          loginStreak: 0,
+          journeyProgress: {}
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Save new user to database immediately
+      try {
+        await retryOperation(() => 
+          dynamodb.send(new PutCommand({
+            TableName: process.env.GAME_DATA_TABLE,
+            Item: gameData
+          }))
+        );
+        console.log('New user created in database:', userId);
+      } catch (saveError) {
+        console.error('Failed to save new user:', saveError);
+        // Continue anyway, will retry on next request
+      }
+    }
 
     // Each userId is unique - no email-based merging
 
-    // Ensure all required properties exist (migration for existing users)
+    // Ensure all required properties exist and are up-to-date
     if (!gameData.profile) {
       gameData.profile = {
         email: userProfile.email,
@@ -679,17 +697,25 @@ async function getGameData(userId, userProfile) {
     } else {
       // Update profile with latest info from Cognito, but preserve custom username
       const existingUsername = gameData.profile.username;
-      gameData.profile = { ...gameData.profile, ...userProfile };
       
-      // Preserve custom username if it exists and is not a Cognito auto-generated one
+      // Update all fields except username if custom username exists
+      gameData.profile.email = userProfile.email;
+      gameData.profile.picture = userProfile.picture;
+      gameData.profile.emailVerified = userProfile.emailVerified;
+      
+      // Preserve custom username if it exists and is not auto-generated
       if (existingUsername && 
           !existingUsername.startsWith('Google_') && 
           !existingUsername.startsWith('UID_') &&
           !existingUsername.includes('@') && 
           existingUsername !== userProfile.username) {
         gameData.profile.username = existingUsername;
+        gameData.profile.name = existingUsername; // Use custom username as display name
         console.log('Preserved custom username:', existingUsername, 'for user:', userId);
       } else {
+        // Use Cognito username (auto-generated) - user needs to set custom username
+        gameData.profile.username = userProfile.username;
+        gameData.profile.name = userProfile.name;
         console.log('User needs username setup:', {
           userId,
           existingUsername,
@@ -697,7 +723,7 @@ async function getGameData(userId, userProfile) {
         });
       }
       
-      // Ensure authMethod is set for existing users
+      // Ensure authMethod is set
       if (!gameData.profile.authMethod) {
         gameData.profile.authMethod = userProfile.authMethod;
       }
