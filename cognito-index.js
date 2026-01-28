@@ -7,7 +7,7 @@ const VEHICLE_DATABASE = require('./expandedVehicleDatabase');
 
 // Puzzle session storage (DynamoDB for persistence)
 const SESSION_TIMEOUT = 600000; // 10 minutes
-const PUZZLE_SESSION_TABLE = 'vehicle-guesser-puzzle-sessions-prod';
+const PUZZLE_SESSION_TABLE = process.env.PUZZLE_SESSION_TABLE || 'vehicle-guesser-puzzle-sessions-prod';
 
 // Blacklisted images (broken/missing)
 const brokenImages = new Set();
@@ -2031,11 +2031,16 @@ async function getVehiclesByLevel(level) {
 
 async function generateVehiclePuzzle(level) {
   try {
+    console.log('Generating puzzle for level:', level);
     const levelKey = level.toLowerCase();
     const vehicles = VEHICLE_DATABASE[levelKey] || [];
+    console.log(`Found ${vehicles.length} vehicles for level ${levelKey}`);
+    
     const availableVehicles = vehicles.filter(v => !brokenImages.has(v.imageKey));
+    console.log(`${availableVehicles.length} vehicles available after filtering broken images`);
     
     if (!availableVehicles.length) {
+      console.error(`No vehicles available for level: ${level}`);
       return {
         statusCode: 404,
         headers: corsHeaders,
@@ -2044,26 +2049,62 @@ async function generateVehiclePuzzle(level) {
     }
     
     // Select random vehicle
-    const randomVehicle = availableVehicles[Math.floor(Math.random() * availableVehicles.length)];
+    const randomIndex = Math.floor(Math.random() * availableVehicles.length);
+    const randomVehicle = availableVehicles[randomIndex];
+    console.log('Selected vehicle:', {
+      id: randomVehicle.id,
+      hasVehicle: !!randomVehicle.vehicle,
+      vehicleKeys: randomVehicle.vehicle ? Object.keys(randomVehicle.vehicle) : null,
+      imageKey: randomVehicle.imageKey
+    });
+    
+    // Validate vehicle data structure
+    if (!randomVehicle.vehicle || !randomVehicle.vehicle.brand) {
+      console.error('Invalid vehicle data structure:', {
+        vehicle: randomVehicle.vehicle,
+        fullObject: randomVehicle
+      });
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid vehicle data structure' })
+      };
+    }
     
     // Build full image URL
     const imageUrl = `${S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
+    console.log('Generated image URL:', imageUrl);
     
     // Generate cryptographically secure puzzle ID
     const puzzleId = generateSecureId();
+    console.log('Generated puzzle ID:', puzzleId);
     
     // Store puzzle session in DynamoDB
     const ttl = Math.floor((Date.now() + SESSION_TIMEOUT) / 1000);
-    await dynamodb.send(new PutCommand({
-      TableName: PUZZLE_SESSION_TABLE,
-      Item: {
-        puzzleId,
-        vehicle: randomVehicle.vehicle,
-        createdAt: Date.now(),
-        answeredParts: [],
-        ttl
-      }
-    }));
+    const sessionItem = {
+      puzzleId,
+      vehicle: randomVehicle.vehicle,
+      createdAt: Date.now(),
+      answeredParts: [],
+      ttl
+    };
+    
+    console.log('Storing puzzle session:', {
+      puzzleId,
+      vehicle: randomVehicle.vehicle,
+      table: PUZZLE_SESSION_TABLE
+    });
+    
+    try {
+      await dynamodb.send(new PutCommand({
+        TableName: PUZZLE_SESSION_TABLE,
+        Item: sessionItem
+      }));
+      console.log('Puzzle session stored successfully');
+    } catch (dbError) {
+      console.error('Failed to store puzzle session:', dbError);
+      // Continue anyway - fallback to in-memory if needed
+    }
     
     // Send puzzle WITHOUT correct answers (security improvement)
     const puzzle = {
@@ -2077,6 +2118,16 @@ async function generateVehiclePuzzle(level) {
       // vehicle: REMOVED - never sent to client for security
     };
     
+    console.log('Generated puzzle successfully:', {
+      id: puzzle.id,
+      imageUrl: puzzle.imageUrl,
+      optionsCount: {
+        brand: puzzle.brandOptions.length,
+        model: puzzle.modelOptions.length,
+        year: puzzle.yearOptions.length
+      }
+    });
+    
     return {
       statusCode: 200,
       headers: corsHeaders,
@@ -2084,10 +2135,11 @@ async function generateVehiclePuzzle(level) {
     };
   } catch (error) {
     console.error('Generate vehicle puzzle error:', error);
+    console.error('Error stack:', error.stack);
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: 'Failed to generate puzzle' })
+      body: JSON.stringify({ error: 'Failed to generate puzzle', details: error.message })
     };
   }
 }
