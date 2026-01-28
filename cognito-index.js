@@ -154,6 +154,29 @@ exports.handler = async (event) => {
     }
     
     // Vehicle API endpoints - make public for better performance
+    if (path === '/calculate-score' && httpMethod === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Request body is required' })
+        };
+      }
+      
+      let performanceData;
+      try {
+        performanceData = JSON.parse(body);
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid JSON in request body' })
+        };
+      }
+      
+      return await calculateSecureScore(performanceData);
+    }
+    
     if (path === '/verify-answer' && httpMethod === 'POST') {
       console.log('verify-answer request:', { body, bodyType: typeof body });
       
@@ -2091,6 +2114,150 @@ async function verifyAnswer(puzzleId, part, answer) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to verify answer' })
+    };
+  }
+}
+
+async function calculateSecureScore(performanceData) {
+  try {
+    const { puzzleId, level, answers, totalTimeMs, totalMistakes, correctCount } = performanceData;
+    
+    // Validate input data
+    if (!puzzleId || !level || !answers || typeof totalMistakes !== 'number' || typeof correctCount !== 'number') {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid performance data' })
+      };
+    }
+    
+    // Verify puzzle session exists
+    const puzzleSession = await dynamodb.send(new GetCommand({
+      TableName: PUZZLE_SESSION_TABLE,
+      Key: { puzzleId }
+    }));
+    
+    if (!puzzleSession.Item) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Puzzle session not found or expired' })
+      };
+    }
+    
+    // Server-side score calculation constants
+    const BASE_POINTS = 25;
+    const MAX_TIME_BONUS = 20; // 10 seconds * 2 multiplier
+    const MAX_COMBO_BONUS = 15; // 3 combo * 5 multiplier
+    const PERFECT_BONUS = 30;
+    const MAX_TIME_MS = 10000; // 10 seconds
+    
+    let totalScore = 0;
+    let breakdown = {
+      basePoints: 0,
+      timeBonus: 0,
+      comboBonus: 0,
+      perfectBonus: 0,
+      details: []
+    };
+    
+    let currentCombo = 0;
+    
+    // Calculate score for each part
+    ['brand', 'model', 'year'].forEach((part, index) => {
+      const answer = answers[part];
+      if (!answer) return;
+      
+      const { choice, timeMs, mistakes } = answer;
+      const correctAnswer = puzzleSession.Item.vehicle[part];
+      
+      // Skip if no correct answer available
+      if (!correctAnswer) {
+        breakdown.details.push({
+          part,
+          correct: false,
+          basePoints: 0,
+          timeBonus: 0,
+          comboBonus: 0,
+          partScore: 0,
+          error: 'No correct answer available'
+        });
+        return;
+      }
+      
+      // Normalize and compare answers
+      const normalizeString = (str) => String(str).trim().toLowerCase().replace(/\s+/g, '');
+      const isCorrect = normalizeString(choice) === normalizeString(correctAnswer);
+      
+      if (isCorrect) {
+        // Base points
+        const basePoints = BASE_POINTS;
+        breakdown.basePoints += basePoints;
+        
+        // Time bonus (more points for faster answers)
+        const timeBonus = Math.max(0, Math.floor((MAX_TIME_MS - Math.min(timeMs, MAX_TIME_MS)) / 500));
+        breakdown.timeBonus += timeBonus;
+        
+        // Combo bonus (only if no mistakes on this part)
+        if (mistakes === 0) {
+          currentCombo++;
+          const comboBonus = currentCombo * 5;
+          breakdown.comboBonus += comboBonus;
+        } else {
+          currentCombo = 0;
+        }
+        
+        const partScore = basePoints + timeBonus + (mistakes === 0 ? currentCombo * 5 : 0);
+        totalScore += partScore;
+        
+        breakdown.details.push({
+          part,
+          correct: true,
+          basePoints,
+          timeBonus,
+          comboBonus: mistakes === 0 ? currentCombo * 5 : 0,
+          partScore
+        });
+      } else {
+        currentCombo = 0;
+        breakdown.details.push({
+          part,
+          correct: false,
+          basePoints: 0,
+          timeBonus: 0,
+          comboBonus: 0,
+          partScore: 0
+        });
+      }
+    });
+    
+    // Perfect bonus (no mistakes at all)
+    if (totalMistakes === 0 && correctCount === 3) {
+      breakdown.perfectBonus = PERFECT_BONUS;
+      totalScore += PERFECT_BONUS;
+    }
+    
+    // Final validation
+    const maxPossibleScore = (BASE_POINTS + MAX_TIME_BONUS + MAX_COMBO_BONUS) * 3 + PERFECT_BONUS;
+    if (totalScore > maxPossibleScore) {
+      totalScore = maxPossibleScore;
+    }
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        score: Math.floor(totalScore),
+        breakdown,
+        validated: true
+      })
+    };
+  } catch (error) {
+    console.error('Calculate secure score error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to calculate score' })
     };
   }
 }
