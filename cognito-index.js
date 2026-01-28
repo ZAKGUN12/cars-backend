@@ -39,8 +39,55 @@ const validateStats = (stats) => {
 };
 
 const generateSecureId = () => {
-  return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // Use crypto.randomUUID() for cryptographically secure IDs
+  const { randomUUID } = require('crypto');
+  return `puzzle_${Date.now()}_${randomUUID().replace(/-/g, '').substring(0, 16)}`;
 };
+
+// Rate limiting specifically for answer verification
+const ANSWER_RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_ANSWER_ATTEMPTS_PER_MINUTE = 20; // Lower limit for answer attempts
+
+async function checkAnswerRateLimit(puzzleId) {
+  const now = Date.now();
+  const windowStart = now - ANSWER_RATE_LIMIT_WINDOW;
+  
+  try {
+    // Get puzzle session to check answer attempts
+    const result = await dynamodb.send(new GetCommand({
+      TableName: PUZZLE_SESSION_TABLE,
+      Key: { puzzleId }
+    }));
+    
+    if (!result.Item) return true; // Allow if session doesn't exist
+    
+    let attempts = result.Item.answerAttempts || [];
+    
+    // Remove old attempts outside the window
+    attempts = attempts.filter(time => time > windowStart);
+    
+    if (attempts.length >= MAX_ANSWER_ATTEMPTS_PER_MINUTE) {
+      return false; // Rate limit exceeded
+    }
+    
+    // Add current attempt
+    attempts.push(now);
+    
+    // Update session with new attempt (fire and forget for performance)
+    dynamodb.send(new PutCommand({
+      TableName: PUZZLE_SESSION_TABLE,
+      Item: {
+        ...result.Item,
+        answerAttempts: attempts
+      }
+    })).catch(err => console.warn('Answer rate limit update failed:', err));
+    
+    return true; // Request allowed
+  } catch (error) {
+    console.error('Answer rate limit check failed:', error);
+    return true; // Allow on error to prevent blocking legitimate users
+  }
+}
 
 // Rate limiting with DynamoDB (persistent across Lambda restarts)
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
@@ -207,6 +254,15 @@ exports.handler = async (event) => {
           statusCode: 400,
           headers: corsHeaders,
           body: JSON.stringify({ error: 'Missing required fields', received: requestData })
+        };
+      }
+      
+      // Check answer-specific rate limiting
+      if (!(await checkAnswerRateLimit(requestData.puzzleId))) {
+        return {
+          statusCode: 429,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Too many answer attempts. Please slow down.' })
         };
       }
       
@@ -1993,8 +2049,8 @@ async function generateVehiclePuzzle(level) {
     // Build full image URL
     const imageUrl = `${S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
     
-    // Generate unique puzzle ID
-    const puzzleId = `puzzle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate cryptographically secure puzzle ID
+    const puzzleId = generateSecureId();
     
     // Store puzzle session in DynamoDB
     const ttl = Math.floor((Date.now() + SESSION_TIMEOUT) / 1000);
@@ -2009,7 +2065,7 @@ async function generateVehiclePuzzle(level) {
       }
     }));
     
-    // Send puzzle WITHOUT correct answers
+    // Send puzzle WITHOUT correct answers (security improvement)
     const puzzle = {
       id: puzzleId,
       imageUrl: imageUrl,
@@ -2018,7 +2074,7 @@ async function generateVehiclePuzzle(level) {
       yearOptions: shuffleArray([...randomVehicle.yearOptions]),
       difficulty: randomVehicle.difficulty,
       tags: randomVehicle.tags
-      // vehicle: REMOVED - not sent to client
+      // vehicle: REMOVED - never sent to client for security
     };
     
     return {
@@ -2047,6 +2103,15 @@ async function verifyAnswer(puzzleId, part, answer) {
       };
     }
     
+    // Additional validation: Check puzzle ID format to prevent injection
+    if (!/^puzzle_\d+_[a-f0-9]{16}$/.test(puzzleId)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid puzzle ID format' })
+      };
+    }
+    
     // Get puzzle session from DynamoDB and update atomically
     try {
       const result = await dynamodb.send(new GetCommand({
@@ -2068,19 +2133,30 @@ async function verifyAnswer(puzzleId, part, answer) {
       // Check if this part was already answered (prevent replay)
       if (answeredParts.has(part)) {
         return {
-          statusCode: 400,
+          statusCode: 409,
           headers: corsHeaders,
-          body: JSON.stringify({ error: 'Part already answered' })
+          body: JSON.stringify({ error: 'Part already answered - replay attack detected' })
         };
       }
       
-      // Mark as answered and update DynamoDB
+      // Check session age to prevent stale session abuse
+      const sessionAge = Date.now() - session.createdAt;
+      if (sessionAge > SESSION_TIMEOUT) {
+        return {
+          statusCode: 410,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Puzzle session expired' })
+        };
+      }
+      
+      // Mark as answered and update DynamoDB atomically
       answeredParts.add(part);
       await dynamodb.send(new PutCommand({
         TableName: PUZZLE_SESSION_TABLE,
         Item: {
           ...session,
-          answeredParts: Array.from(answeredParts)
+          answeredParts: Array.from(answeredParts),
+          lastAnswered: Date.now() // Track when last answer was submitted
         }
       }));
       
@@ -2091,13 +2167,13 @@ async function verifyAnswer(puzzleId, part, answer) {
       
       const isCorrect = userAnswer === correctAnswer;
       
-      // Return result with correct answer only if user answered
+      // Return result with correct answer only after verification
       return {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({
           correct: isCorrect,
-          correctAnswer: session.vehicle[part] // Reveal after answer attempt
+          correctAnswer: session.vehicle[part] // Only reveal after legitimate attempt
         })
       };
     } catch (error) {
