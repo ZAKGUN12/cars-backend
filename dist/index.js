@@ -23,6 +23,10 @@ const CORS_HEADERS = {
 const rateLimits = new Map();
 const RATE_LIMIT_WINDOW = 60000;
 const MAX_REQUESTS_PER_MINUTE = 100;
+// Track used vehicles per user session to prevent duplicates
+const usedVehiclesPerUser = new Map();
+const SESSION_EXPIRY = 30 * 60 * 1000; // 30 minutes
+const sessionTimestamps = new Map();
 function checkRateLimit(userId) {
     const now = Date.now();
     const userRequests = rateLimits.get(userId) || [];
@@ -66,7 +70,9 @@ const handler = async (event) => {
         if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
             const data = (0, utils_1.parseJSON)(body, { level: 'easy' });
             (0, utils_1.validateRequired)(data.level, 'level');
-            return await generateVehiclePuzzle(data.level);
+            const claims = event.requestContext?.authorizer?.claims;
+            const userId = claims?.sub;
+            return await generateVehiclePuzzle(data.level, userId);
         }
         const claims = event.requestContext?.authorizer?.claims;
         const userId = (0, utils_1.validateRequired)(claims?.sub, 'userId');
@@ -205,14 +211,38 @@ async function getLeaderboard() {
         return (0, utils_1.errorResponse)('Failed to get leaderboard');
     }
 }
-async function generateVehiclePuzzle(level) {
+async function generateVehiclePuzzle(level, userId) {
     try {
         const levelKey = level.toLowerCase();
         const vehicles = vehicleDatabase_1.VEHICLE_DATABASE[levelKey] || [];
         if (!vehicles.length) {
             return (0, utils_1.errorResponse)('No vehicles available', 404);
         }
-        const randomVehicle = vehicles[Math.floor(Math.random() * vehicles.length)];
+        // Clean up expired sessions
+        const now = Date.now();
+        for (const [uid, timestamp] of sessionTimestamps.entries()) {
+            if (now - timestamp > SESSION_EXPIRY) {
+                usedVehiclesPerUser.delete(uid);
+                sessionTimestamps.delete(uid);
+            }
+        }
+        // Get or create user's used vehicles set
+        const sessionKey = userId || 'anonymous';
+        if (!usedVehiclesPerUser.has(sessionKey)) {
+            usedVehiclesPerUser.set(sessionKey, new Set());
+        }
+        const usedVehicles = usedVehiclesPerUser.get(sessionKey);
+        sessionTimestamps.set(sessionKey, now);
+        // Filter out already used vehicles
+        const availableVehicles = vehicles.filter((v) => !usedVehicles.has(v.id));
+        // If all vehicles used, reset for this user
+        if (availableVehicles.length === 0) {
+            console.log(`All ${levelKey} vehicles used for ${sessionKey}, resetting...`);
+            usedVehicles.clear();
+            availableVehicles.push(...vehicles);
+        }
+        const randomVehicle = availableVehicles[Math.floor(Math.random() * availableVehicles.length)];
+        usedVehicles.add(randomVehicle.id);
         const imageUrl = `${config_1.S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
         const puzzle = {
             id: randomVehicle.id,

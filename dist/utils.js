@@ -1,6 +1,42 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.corsHeaders = exports.validateStats = exports.generateSecureId = exports.retryOperation = void 0;
+exports.corsHeaders = exports.validateStats = exports.generateSecureId = exports.retryOperation = exports.validateRequired = exports.parseJSON = exports.errorResponse = exports.successResponse = void 0;
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': 'https://dw78cwmd7ajty.cloudfront.net',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Content-Type': 'application/json'
+};
+const successResponse = (data) => ({
+    statusCode: 200,
+    headers: CORS_HEADERS,
+    body: JSON.stringify(data)
+});
+exports.successResponse = successResponse;
+const errorResponse = (message, statusCode = 500) => ({
+    statusCode,
+    headers: CORS_HEADERS,
+    body: JSON.stringify({ error: message })
+});
+exports.errorResponse = errorResponse;
+const parseJSON = (body, defaultValue) => {
+    if (!body)
+        return defaultValue;
+    try {
+        return JSON.parse(body);
+    }
+    catch {
+        return defaultValue;
+    }
+};
+exports.parseJSON = parseJSON;
+const validateRequired = (value, fieldName) => {
+    if (value === undefined || value === null) {
+        throw new Error(`${fieldName} is required`);
+    }
+    return value;
+};
+exports.validateRequired = validateRequired;
 const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {

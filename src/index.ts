@@ -1,6 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { APIGatewayEvent, APIResponse, UserProfile, GameData, UpdateGameDataRequest } from './types';
+import { APIGatewayEvent, APIResponse, UserProfile, GameData, UpdateGameDataRequest, VehicleData } from './types';
 import { VEHICLE_DATABASE } from './vehicleDatabase';
 import { S3_CONFIG } from './config';
 import { successResponse, errorResponse, parseJSON, validateRequired } from './utils';
@@ -25,6 +25,11 @@ const CORS_HEADERS = {
 const rateLimits = new Map<string, number[]>();
 const RATE_LIMIT_WINDOW = 60000;
 const MAX_REQUESTS_PER_MINUTE = 100;
+
+// Track used vehicles per user session to prevent duplicates
+const usedVehiclesPerUser = new Map<string, Set<string>>();
+const SESSION_EXPIRY = 30 * 60 * 1000; // 30 minutes
+const sessionTimestamps = new Map<string, number>();
 
 function checkRateLimit(userId: string): boolean {
   const now = Date.now();
@@ -74,7 +79,9 @@ export const handler = async (event: APIGatewayEvent): Promise<APIResponse> => {
     if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
       const data = parseJSON(body, { level: 'easy' });
       validateRequired(data.level, 'level');
-      return await generateVehiclePuzzle(data.level);
+      const claims = event.requestContext?.authorizer?.claims;
+      const userId = claims?.sub;
+      return await generateVehiclePuzzle(data.level, userId);
     }
 
     const claims = event.requestContext?.authorizer?.claims;
@@ -233,7 +240,7 @@ async function getLeaderboard(): Promise<APIResponse> {
   }
 }
 
-async function generateVehiclePuzzle(level: string): Promise<APIResponse> {
+async function generateVehiclePuzzle(level: string, userId?: string): Promise<APIResponse> {
   try {
     const levelKey = level.toLowerCase() as 'easy' | 'medium' | 'hard';
     const vehicles = VEHICLE_DATABASE[levelKey] || [];
@@ -242,7 +249,36 @@ async function generateVehiclePuzzle(level: string): Promise<APIResponse> {
       return errorResponse('No vehicles available', 404);
     }
     
-    const randomVehicle = vehicles[Math.floor(Math.random() * vehicles.length)];
+    // Clean up expired sessions
+    const now = Date.now();
+    for (const [uid, timestamp] of sessionTimestamps.entries()) {
+      if (now - timestamp > SESSION_EXPIRY) {
+        usedVehiclesPerUser.delete(uid);
+        sessionTimestamps.delete(uid);
+      }
+    }
+    
+    // Get or create user's used vehicles set
+    const sessionKey = userId || 'anonymous';
+    if (!usedVehiclesPerUser.has(sessionKey)) {
+      usedVehiclesPerUser.set(sessionKey, new Set());
+    }
+    const usedVehicles = usedVehiclesPerUser.get(sessionKey)!;
+    sessionTimestamps.set(sessionKey, now);
+    
+    // Filter out already used vehicles
+    const availableVehicles = vehicles.filter((v: VehicleData) => !usedVehicles.has(v.id));
+    
+    // If all vehicles used, reset for this user
+    if (availableVehicles.length === 0) {
+      console.log(`All ${levelKey} vehicles used for ${sessionKey}, resetting...`);
+      usedVehicles.clear();
+      availableVehicles.push(...vehicles);
+    }
+    
+    const randomVehicle = availableVehicles[Math.floor(Math.random() * availableVehicles.length)];
+    usedVehicles.add(randomVehicle.id);
+    
     const imageUrl = `${S3_CONFIG.BASE_URL}/${randomVehicle.imageKey}`;
     
     const puzzle = {

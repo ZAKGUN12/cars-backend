@@ -1,4 +1,40 @@
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { APIResponse } from './types';
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': 'https://dw78cwmd7ajty.cloudfront.net',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Content-Type': 'application/json'
+};
+
+export const successResponse = (data: any): APIResponse => ({
+  statusCode: 200,
+  headers: CORS_HEADERS,
+  body: JSON.stringify(data)
+});
+
+export const errorResponse = (message: string, statusCode = 500): APIResponse => ({
+  statusCode,
+  headers: CORS_HEADERS,
+  body: JSON.stringify({ error: message })
+});
+
+export const parseJSON = <T>(body: string | null, defaultValue: T): T => {
+  if (!body) return defaultValue;
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    return defaultValue;
+  }
+};
+
+export const validateRequired = <T>(value: T | undefined | null, fieldName: string): T => {
+  if (value === undefined || value === null) {
+    throw new Error(`${fieldName} is required`);
+  }
+  return value;
+};
 
 export const retryOperation = async <T>(
   operation: () => Promise<T>,

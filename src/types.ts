@@ -76,3 +76,55 @@ export interface RateLimitData {
   requests: number[];
   lastReset: number;
 }
+
+export interface APIGatewayEvent {
+  httpMethod: string;
+  path: string;
+  body: string | null;
+  requestContext: {
+    authorizer?: {
+      claims?: Record<string, string>;
+    };
+  };
+}
+
+export interface APIResponse {
+  statusCode: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export type GameData = User;
+
+export interface UpdateGameDataRequest {
+  score?: number;
+  mode?: string;
+  level?: string;
+  mistakes?: number;
+  isEndurance?: boolean;
+  journeyData?: any;
+  correctCount?: number;
+  bonusData?: any;
+  hintCost?: number;
+  powerUpType?: string;
+  purchaseData?: any;
+}
+
+export interface VehicleData {
+  id: string;
+  vehicle: { brand: string; model: string; year: number };
+  imageKey: string;
+  imagePart: string;
+  brandOptions: string[];
+  modelOptions: string[];
+  yearOptions: number[];
+  level: string;
+  difficulty: number;
+  tags: string[];
+}
+
+export interface VehicleDatabase {
+  easy: VehicleData[];
+  medium: VehicleData[];
+  hard: VehicleData[];
+}
