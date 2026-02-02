@@ -175,216 +175,83 @@ let leaderboardCache = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 60000; // 1 minute
 
+const handlePublicRoutes = async (path, httpMethod, body) => {
+  if (path === '/leaderboard' && httpMethod === 'GET') {
+    return await getLeaderboard();
+  }
+  
+  if (path === '/calculate-score' && httpMethod === 'POST') {
+    const performanceData = parseBody(body, 'calculate-score');
+    if (performanceData.error) return performanceData.error;
+    return await calculateSecureScore(performanceData);
+  }
+  
+  if (path === '/verify-answer' && httpMethod === 'POST') {
+    const requestData = parseBody(body, 'verify-answer');
+    if (requestData.error) return requestData.error;
+    
+    if (!requestData.puzzleId || !requestData.part || requestData.answer === undefined) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing required fields', received: requestData }) };
+    }
+    
+    if (!(await checkAnswerRateLimit(requestData.puzzleId))) {
+      return { statusCode: 429, headers: corsHeaders, body: JSON.stringify({ error: 'Too many answer attempts. Please slow down.' }) };
+    }
+    
+    return await verifyAnswer(requestData.puzzleId, requestData.part, requestData.answer);
+  }
+  
+  if (path === '/vehicles' && httpMethod === 'GET') {
+    const level = event.queryStringParameters?.level;
+    if (!level) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Level parameter is required' }) };
+    return await getVehiclesByLevel(level);
+  }
+  
+  if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
+    const requestData = parseBody(body, 'vehicles/puzzle');
+    if (requestData.error) return requestData.error;
+    const difficulty = requestData.difficulty || requestData.level || 'Easy';
+    return await generateVehiclePuzzle(difficulty);
+  }
+  
+  if (path === '/vehicles/report-broken' && httpMethod === 'POST') {
+    const requestData = parseBody(body, 'report-broken');
+    if (requestData.error) return requestData.error;
+    return await reportBrokenImage(requestData.imageUrl);
+  }
+  
+  if (path === '/check-username' && httpMethod === 'POST') {
+    const requestData = parseBody(body, 'check-username');
+    if (requestData.error) return requestData.error;
+    return await checkUsernameExists(requestData.username);
+  }
+  
+  return null;
+};
+
+const parseBody = (body, endpoint) => {
+  if (!body) {
+    return { error: { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Request body is required' }) } };
+  }
+  try {
+    return JSON.parse(body);
+  } catch (parseError) {
+    return { error: { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Invalid JSON in request body' }) } };
+  }
+};
+
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
 
   try {
     const { httpMethod, path, body } = event;
     
-    // Handle CORS preflight - must be before any other logic
     if (httpMethod === 'OPTIONS') {
-      return {
-        statusCode: 200,
-        headers: {
-          'Access-Control-Allow-Origin': 'https://dw78cwmd7ajty.cloudfront.net',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
-        },
-        body: ''
-      };
+      return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': 'https://dw78cwmd7ajty.cloudfront.net', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS' }, body: '' };
     }
 
-    // Public endpoints that don't require authentication
-    if (path === '/leaderboard' && httpMethod === 'GET') {
-      return await getLeaderboard();
-    }
-    
-    // Vehicle API endpoints - make public for better performance
-    if (path === '/calculate-score' && httpMethod === 'POST') {
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required' })
-        };
-      }
-      
-      let performanceData;
-      try {
-        performanceData = JSON.parse(body);
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body' })
-        };
-      }
-      
-      return await calculateSecureScore(performanceData);
-    }
-    
-    if (path === '/verify-answer' && httpMethod === 'POST') {
-      console.log('verify-answer request:', { body, bodyType: typeof body });
-      
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required' })
-        };
-      }
-      
-      let requestData;
-      try {
-        requestData = JSON.parse(body);
-        console.log('Parsed request data:', requestData);
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body' })
-        };
-      }
-      
-      if (!requestData.puzzleId || !requestData.part || requestData.answer === undefined) {
-        console.error('Missing fields:', requestData);
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Missing required fields', received: requestData })
-        };
-      }
-      
-      // Check answer-specific rate limiting
-      if (!(await checkAnswerRateLimit(requestData.puzzleId))) {
-        return {
-          statusCode: 429,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Too many answer attempts. Please slow down.' })
-        };
-      }
-      
-      return await verifyAnswer(requestData.puzzleId, requestData.part, requestData.answer);
-    }
-    
-    if (path === '/vehicles' && httpMethod === 'GET') {
-      const level = event.queryStringParameters?.level;
-      if (!level) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Level parameter is required' })
-        };
-      }
-      return await getVehiclesByLevel(level);
-    }
-    
-    if (path === '/vehicles/puzzle' && httpMethod === 'POST') {
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required' })
-        };
-      }
-      
-      let requestData;
-      try {
-        requestData = JSON.parse(body);
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body' })
-        };
-      }
-      
-      const difficulty = requestData.difficulty || requestData.level || 'Easy';
-      return await generateVehiclePuzzle(difficulty);
-    }
-    
-    if (path === '/vehicles/report-broken' && httpMethod === 'POST') {
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required' })
-        };
-      }
-      
-      let requestData;
-      try {
-        requestData = JSON.parse(body);
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body' })
-        };
-      }
-      
-      return await reportBrokenImage(requestData.imageUrl);
-    }
-    
-    if (path === '/check-username' && httpMethod === 'POST') {
-      if (!body) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Request body is required', code: 'MISSING_BODY' })
-        };
-      }
-      
-      let requestData;
-      try {
-        requestData = JSON.parse(body);
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid JSON in request body', code: 'INVALID_JSON' })
-        };
-      }
-      
-      return await checkUsernameExists(requestData.username);
-    }
-    
-    if (path === '/update-activity' && httpMethod === 'POST') {
-      // Extract user info from Cognito JWT for activity update
-      const activityClaims = event.requestContext?.authorizer?.claims;
-      const activityUserId = activityClaims?.sub;
-      
-      // Update user activity timestamp
-      if (activityUserId) {
-        try {
-          const existing = await retryOperation(() => 
-            dynamodb.send(new GetCommand({
-              TableName: process.env.GAME_DATA_TABLE,
-              Key: { userId: activityUserId }
-            }))
-          );
-          
-          if (existing.Item) {
-            existing.Item.updatedAt = new Date().toISOString();
-            existing.Item.lastActivity = new Date().toISOString();
-            await retryOperation(() => 
-              dynamodb.send(new PutCommand({
-                TableName: process.env.GAME_DATA_TABLE,
-                Item: existing.Item
-              }))
-            );
-          }
-        } catch (error) {
-          console.warn('Failed to update activity:', error);
-        }
-      }
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify({ success: true })
-      };
-    }
+    const publicRoute = await handlePublicRoutes(path, httpMethod, body);
+    if (publicRoute) return publicRoute;
 
     // Extract user info from Cognito JWT
     const claims = event.requestContext?.authorizer?.claims;
