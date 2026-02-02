@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "package": "npm run build && cd dist && zip -r ../lambda-function.zip . && cd .. && zip -r lambda-function.zip node_modules",
+    "package": "npm run build && npm ci --production && zip -r lambda-function.zip dist node_modules cognito-index.js expandedVehicleDatabase.js imageMetadataService.js index.js matchmaking.js s3Config.js vehicleSelection.js websocket.js",
     "deploy": "npm run package && aws lambda update-function-code --function-name vehicle-guesser-api-prod --zip-file fileb://lambda-function.zip --region eu-west-1"
   },
   "repository": {

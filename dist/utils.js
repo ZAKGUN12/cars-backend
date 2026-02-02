@@ -54,7 +54,7 @@ const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
 };
 exports.retryOperation = retryOperation;
 const generateSecureId = () => {
-    return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 };
 exports.generateSecureId = generateSecureId;
 const validateStats = (stats) => {

@@ -502,6 +502,10 @@ exports.handler = async (event) => {
       return await getOnlinePlayersForQuickMatch(userId);
     }
 
+    if (path === '/update-activity' && httpMethod === 'POST') {
+      return await updateUserActivity(userId);
+    }
+
 
 
     if (path === '/notifications' && httpMethod === 'GET') {
@@ -1794,6 +1798,34 @@ async function getChallengeStatus(userId, challengeId) {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ error: 'Failed to get challenge status' })
+    };
+  }
+}
+
+async function updateUserActivity(userId) {
+  try {
+    await retryOperation(() => 
+      dynamodb.send(new UpdateCommand({
+        TableName: process.env.GAME_DATA_TABLE,
+        Key: { userId },
+        UpdateExpression: 'SET lastActivity = :timestamp',
+        ExpressionAttributeValues: {
+          ':timestamp': new Date().toISOString()
+        }
+      }))
+    );
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true })
+    };
+  } catch (error) {
+    console.error('Update activity error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to update activity' })
     };
   }
 }
