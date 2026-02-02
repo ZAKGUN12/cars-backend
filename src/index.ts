@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { APIGatewayEvent, APIResponse, UserProfile, GameData, UpdateGameDataRequest, VehicleData } from './types';
 import { VEHICLE_DATABASE } from './vehicleDatabase';
 import { S3_CONFIG } from './config';

@@ -1,4 +1,3 @@
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { APIResponse } from './types';
 
 const CORS_HEADERS = {
