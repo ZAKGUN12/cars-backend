@@ -39,9 +39,8 @@ const validateStats = (stats) => {
 };
 
 const generateSecureId = () => {
-  // Use crypto.randomUUID() for cryptographically secure IDs
-  const { randomUUID } = require('crypto');
-  return `puzzle_${Date.now()}_${randomUUID().replace(/-/g, '').substring(0, 16)}`;
+  const { randomUUID } = require('node:crypto');
+  return `puzzle_${Date.now()}_${randomUUID().replaceAll('-', '').substring(0, 16)}`;
 };
 
 // Rate limiting specifically for answer verification
@@ -950,7 +949,6 @@ async function updateGameData(userId, gameData, userProfile) {
     
     // Enhanced server-side score validation (anti-cheat)
     const MAX_POINTS_PER_VEHICLE = 210;
-    const MAX_POINTS_PER_GAME = mode === 'Journey' ? MAX_POINTS_PER_VEHICLE * 10 : MAX_POINTS_PER_VEHICLE * 5;
     const MIN_TIME_PER_ROUND = 3; // Minimum 3 seconds per round
     const MAX_PERFECT_STREAK = 10; // Maximum consecutive perfect games
     
@@ -1125,9 +1123,9 @@ async function updateGameData(userId, gameData, userProfile) {
       let newGears = Number(currentData.stats.gears || 0) + Number(gearsGained || 0);
       
       // Ensure all values are valid numbers
-      newXp = isNaN(newXp) ? 0 : newXp;
-      newLevel = isNaN(newLevel) ? 1 : newLevel;
-      newGears = isNaN(newGears) ? 0 : newGears;
+      newXp = Number.isNaN(newXp) ? 0 : newXp;
+      newLevel = Number.isNaN(newLevel) ? 1 : newLevel;
+      newGears = Number.isNaN(newGears) ? 0 : newGears;
       
       if (newXp >= XP_PER_LEVEL) {
         const levelsGained = Math.floor(newXp / XP_PER_LEVEL);
@@ -1147,7 +1145,7 @@ async function updateGameData(userId, gameData, userProfile) {
           
           // Validate journey data with strict checks
           if (!levelId || typeof levelId !== 'string' || !/^(level_|lvl_)\d+$/.test(levelId)) {
-            throw new Error('Invalid levelId format');
+            throw new TypeError('Invalid levelId format');
           }
           if (typeof stars !== 'number' || stars < 0 || stars > 3) {
             throw new Error('Invalid stars value');
@@ -1288,7 +1286,7 @@ async function getLeaderboard() {
           displayName = item.profile.username;
         } else if (item.userId) {
           // Generate UID from database userId as fallback
-          const uid = item.userId.replace(/-/g, '').substring(0, 8).toUpperCase();
+          const uid = item.userId.replaceAll('-', '').substring(0, 8).toUpperCase();
           displayName = `UID_${uid}`;
           needsUsernameSetup = true;
         }
@@ -1961,7 +1959,7 @@ async function getOnlinePlayersForQuickMatch(currentUserId) {
         } else if (item.profile?.username && !item.profile.username.startsWith('Google_')) {
           displayName = item.profile.username;
         } else if (item.userId) {
-          const uid = item.userId.replace(/-/g, '').substring(0, 8).toUpperCase();
+          const uid = item.userId.replaceAll('-', '').substring(0, 8).toUpperCase();
           displayName = `UID_${uid}`;
         }
         
@@ -2248,7 +2246,7 @@ async function verifyAnswer(puzzleId, part, answer) {
 
 async function calculateSecureScore(performanceData) {
   try {
-    const { puzzleId, level, answers, totalTimeMs, totalMistakes, correctCount } = performanceData;
+    const { puzzleId, level, answers, totalMistakes, correctCount } = performanceData;
     
     // Validate input data
     if (!puzzleId || !level || !answers || typeof totalMistakes !== 'number' || typeof correctCount !== 'number') {
@@ -2273,12 +2271,21 @@ async function calculateSecureScore(performanceData) {
       };
     }
     
-    // Server-side score calculation constants
-    const BASE_POINTS = 25;
-    const MAX_TIME_BONUS = 20; // 10 seconds * 2 multiplier
-    const MAX_COMBO_BONUS = 15; // 3 combo * 5 multiplier
-    const PERFECT_BONUS = 30;
-    const MAX_TIME_MS = 10000; // 10 seconds
+    // Difficulty-based scoring adjustments
+    const difficultyMultipliers = {
+      'Easy': { base: 30, timeWindow: 15000, perfectBonus: 40 },
+      'Medium': { base: 25, timeWindow: 10000, perfectBonus: 30 },
+      'Hard': { base: 20, timeWindow: 8000, perfectBonus: 25 }
+    };
+    
+    const difficulty = level || 'Medium';
+    const config = difficultyMultipliers[difficulty] || difficultyMultipliers['Medium'];
+    
+    const BASE_POINTS = config.base;
+    const MAX_TIME_BONUS = 20;
+    const MAX_COMBO_BONUS = 15;
+    const PERFECT_BONUS = config.perfectBonus;
+    const MAX_TIME_MS = config.timeWindow;
     
     let totalScore = 0;
     let breakdown = {
@@ -2299,7 +2306,6 @@ async function calculateSecureScore(performanceData) {
       const { choice, timeMs, mistakes } = answer;
       const correctAnswer = puzzleSession.Item.vehicle[part];
       
-      // Skip if no correct answer available
       if (!correctAnswer) {
         breakdown.details.push({
           part,
@@ -2313,29 +2319,30 @@ async function calculateSecureScore(performanceData) {
         return;
       }
       
-      // Normalize and compare answers
       const normalizeString = (str) => String(str).trim().toLowerCase().replace(/\s+/g, '');
       const isCorrect = normalizeString(choice) === normalizeString(correctAnswer);
       
       if (isCorrect) {
-        // Base points
         const basePoints = BASE_POINTS;
         breakdown.basePoints += basePoints;
         
-        // Time bonus (more points for faster answers)
+        // More generous time bonus with difficulty-based window
         const timeBonus = Math.max(0, Math.floor((MAX_TIME_MS - Math.min(timeMs, MAX_TIME_MS)) / 500));
         breakdown.timeBonus += timeBonus;
         
-        // Combo bonus (only if no mistakes on this part)
+        // Combo bonus with partial credit for mistakes
         if (mistakes === 0) {
           currentCombo++;
-          const comboBonus = currentCombo * 5;
-          breakdown.comboBonus += comboBonus;
+        } else if (mistakes <= 1) {
+          currentCombo = Math.max(1, currentCombo); // Keep at least 1 combo with 1 mistake
         } else {
           currentCombo = 0;
         }
         
-        const partScore = basePoints + timeBonus + (mistakes === 0 ? currentCombo * 5 : 0);
+        const comboBonus = currentCombo * 5;
+        breakdown.comboBonus += comboBonus;
+        
+        const partScore = basePoints + timeBonus + comboBonus;
         totalScore += partScore;
         
         breakdown.details.push({
@@ -2343,7 +2350,7 @@ async function calculateSecureScore(performanceData) {
           correct: true,
           basePoints,
           timeBonus,
-          comboBonus: mistakes === 0 ? currentCombo * 5 : 0,
+          comboBonus,
           partScore
         });
       } else {
@@ -2359,13 +2366,16 @@ async function calculateSecureScore(performanceData) {
       }
     });
     
-    // Perfect bonus (no mistakes at all)
-    if (totalMistakes === 0 && correctCount === 3) {
+    // Perfect bonus with more lenient criteria
+    if (totalMistakes <= 1 && correctCount === 3) {
       breakdown.perfectBonus = PERFECT_BONUS;
       totalScore += PERFECT_BONUS;
+    } else if (totalMistakes === 0 && correctCount >= 2) {
+      // Partial perfect bonus for 2/3 correct with no mistakes
+      breakdown.perfectBonus = Math.floor(PERFECT_BONUS * 0.5);
+      totalScore += breakdown.perfectBonus;
     }
     
-    // Final validation
     const maxPossibleScore = (BASE_POINTS + MAX_TIME_BONUS + MAX_COMBO_BONUS) * 3 + PERFECT_BONUS;
     if (totalScore > maxPossibleScore) {
       totalScore = maxPossibleScore;
