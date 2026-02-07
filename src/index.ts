@@ -194,6 +194,23 @@ async function updateGameData(userId: string, gameData: UpdateGameDataRequest, u
       updatedAt: new Date().toISOString()
     };
 
+    // Handle power-up purchase
+    if (gameData.mode === 'purchase' && gameData.purchaseData) {
+      const { powerUp, cost } = gameData.purchaseData;
+      
+      if (!powerUp || typeof cost !== 'number') {
+        return errorResponse('Invalid purchase data');
+      }
+      
+      if (currentData.stats.gears < cost) {
+        return errorResponse('Insufficient gears');
+      }
+      
+      currentData.stats.gears -= cost;
+      currentData.stats.powerUps[powerUp as keyof typeof currentData.stats.powerUps] = 
+        (currentData.stats.powerUps[powerUp as keyof typeof currentData.stats.powerUps] || 0) + 1;
+    }
+
     currentData.updatedAt = new Date().toISOString();
 
     const updateResult = await retryOperation(() => 
